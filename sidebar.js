@@ -97,6 +97,23 @@ function chromeifyGroupColor(baseHex) {
   return rgbToHex(finalRgb);
 }
 
+function groupBgColor(baseHex) {
+  const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const base = hexToRgb(baseHex);
+  const target = isDark ? { r: 22, g: 24, b: 28 } : { r: 255, g: 255, b: 255 };
+  const t = isDark ? 0.78 : 0.88;
+  return rgbToHex(mix(base, target, t));
+}
+
+function groupTitleColor(baseHex) {
+  const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const base = hexToRgb(baseHex);
+  if (isDark) {
+    return rgbToHex(mix(base, { r: 255, g: 255, b: 255 }, 0.25));
+  }
+  return rgbToHex(mix(base, { r: 0, g: 0, b: 0 }, 0.35));
+}
+
 function getContrastColor(hex) {
   hex = (hex || '').replace('#', '').trim();
   if (hex.length === 3) hex = hex.split('').map(c => c + c).join('');
@@ -484,13 +501,15 @@ function renderUI(pinnedTabs, groups) {
       container.appendChild(groupEl);
 
       const baseHex = chromeColorMap[g.color] || chromeColorMap.default;
-      const uiHex = chromeifyGroupColor(baseHex);
-      header.style.background = uiHex;
+      const bgHex = groupBgColor(baseHex);
+      const textHex = groupTitleColor(baseHex);
 
-      const fg = getContrastColor(uiHex);
-      header.style.color = fg;
-      triangle.style.color = fg;
-      count.style.color = fg;
+      groupEl.style.background = bgHex;
+      groupEl.style.borderLeft = `4px solid ${baseHex}`;
+
+      title.style.color = textHex;
+      count.style.color = textHex;
+      triangle.style.color = textHex;
 
       header.addEventListener('click', () => {
         const isHidden = window.getComputedStyle(tabsList).display === 'none';

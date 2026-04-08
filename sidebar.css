@@ -72,7 +72,7 @@ body {
   margin-bottom:10px;
   box-shadow: var(--shadow);
   overflow:hidden;
-  border:1px solid rgba(0,0,0,0.06);
+  border: none;
   transition: box-shadow 0.12s ease, outline-color 0.12s ease;
 }
 
@@ -117,21 +117,23 @@ body {
   margin-top:0;
   padding:8px 10px;
   display:none;
-  background: rgba(255,255,255,0.98);
-  border-top: 1px solid rgba(0,0,0,0.06);
 }
 
 .tabItem {
   display:flex;
   align-items:center;
   gap:8px;
-  padding:6px 4px;
+  padding:6px 8px;
   border-radius:6px;
   cursor:grab;
   transition: background 0.12s ease, opacity 0.12s ease;
+  background: rgba(255,255,255,0.85);
+  margin-bottom:6px;
 }
 
-.tabItem:hover { background:#f6f6f6; }
+.tabItem:last-child { margin-bottom:0; }
+
+.tabItem:hover { background: rgba(255,255,255,0.97); }
 .tabItem.dragging {
   opacity: 0.45;
   cursor: grabbing;
@@ -197,9 +199,9 @@ body {
   }
   .topbar button { background:#0f1113; color:inherit; border:1px solid rgba(255,255,255,0.06); }
   .pinned-item { background:#111216; border:1px solid rgba(255,255,255,0.04); }
-  .group { border:1px solid rgba(255,255,255,0.04); box-shadow: none; }
-  .groupTabs { background: rgba(255,255,255,0.03); border-top: 1px solid rgba(255,255,255,0.04); }
-  .tabItem:hover { background: rgba(255,255,255,0.02); }
+  .group { border: none; box-shadow: none; }
+  .tabItem { background: rgba(255,255,255,0.06); }
+  .tabItem:hover { background: rgba(255,255,255,0.11); }
   .footer { color:#9a9a9a; }
 
   .iconBtn {
