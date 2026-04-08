@@ -601,13 +601,14 @@ function applySearchFilter() {
 function syncOpenCloseButtonLabel() {
   const btn = $('openCloseBtn');
   if (!btn) return;
+  const label = btn.querySelector('.btn-label');
 
   if (allOpenState) {
-    btn.textContent = '📁 Close all';
-    btn.title = 'Close all accordions';
+    if (label) label.textContent = 'Collapse';
+    btn.title = 'Collapse all accordions';
   } else {
-    btn.textContent = '📂 Open all';
-    btn.title = 'Open all accordions';
+    if (label) label.textContent = 'Expand';
+    btn.title = 'Expand all accordions';
   }
 }
 
@@ -635,7 +636,8 @@ function wireUI() {
     $('sortBtn')?.addEventListener('click', async () => {
       sortAlpha = !sortAlpha;
       const sb = $('sortBtn');
-      if (sb) sb.textContent = sortAlpha ? 'Sort: A→Z' : 'Sort: Default';
+      const label = sb?.querySelector('.btn-label');
+      if (label) label.textContent = sortAlpha ? 'A→Z' : 'Default';
       renderUI(pinnedCache, groupsData);
       await loadAndRender();
     });

@@ -9,10 +9,21 @@
 <body>
   <div id="root">
     <div class="topbar">
-      <input id="search" placeholder="Search tabs by title or URL..." />
-      <button id="sortBtn" title="Toggle sort">Sort: Default</button>
-      <button id="openCloseBtn" title="Open all accordions">📂 Open all</button>
-      <button id="refreshBtn" title="Refresh">⟳</button>
+      <input id="search" placeholder="Search tabs..." />
+      <div class="toolbar-buttons">
+        <button id="sortBtn" title="Toggle sort">
+          <span class="btn-icon">⇅</span>
+          <span class="btn-label">Default</span>
+        </button>
+        <button id="openCloseBtn" title="Expand all accordions">
+          <span class="btn-icon">📂</span>
+          <span class="btn-label">Expand</span>
+        </button>
+        <button id="refreshBtn" title="Refresh">
+          <span class="btn-icon">↻</span>
+          <span class="btn-label">Refresh</span>
+        </button>
+      </div>
     </div>
 
     <section id="pinnedSection" class="section">
