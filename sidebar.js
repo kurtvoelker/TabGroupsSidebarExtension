@@ -97,18 +97,22 @@ function chromeifyGroupColor(baseHex) {
   return rgbToHex(finalRgb);
 }
 
+function isDarkMode() {
+  return getComputedStyle(document.documentElement).getPropertyValue('--color-scheme').trim() === 'dark';
+}
+
 function groupBgColor(baseHex) {
-  const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const dark = isDarkMode();
   const base = hexToRgb(baseHex);
-  const target = isDark ? { r: 22, g: 24, b: 28 } : { r: 255, g: 255, b: 255 };
-  const t = isDark ? 0.78 : 0.88;
+  const target = dark ? { r: 22, g: 24, b: 28 } : { r: 255, g: 255, b: 255 };
+  const t = dark ? 0.78 : 0.88;
   return rgbToHex(mix(base, target, t));
 }
 
 function groupTitleColor(baseHex) {
-  const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const dark = isDarkMode();
   const base = hexToRgb(baseHex);
-  if (isDark) {
+  if (dark) {
     return rgbToHex(mix(base, { r: 255, g: 255, b: 255 }, 0.25));
   }
   return rgbToHex(mix(base, { r: 0, g: 0, b: 0 }, 0.35));
