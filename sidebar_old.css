@@ -1,0 +1,201 @@
+:root{
+  --panel-width: 360px;
+  --radius: 8px;
+  --muted: #6b6b6b;
+  --border: #e6e6e6;
+  --shadow: 0 2px 6px rgba(0,0,0,0.06);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+  color-scheme: light dark;
+  box-sizing: border-box;
+}
+
+* { box-sizing: inherit; }
+
+body {
+  margin: 0;
+  padding: 12px;
+  width: var(--panel-width);
+  background: #ffffff;
+  color: #111111;
+  font-size: 13px;
+}
+
+.topbar { display:flex; gap:8px; align-items:center; margin-bottom:10px; }
+#search {
+  flex:1;
+  min-width: 0;
+  padding:8px 10px;
+  border-radius:8px;
+  border:1px solid var(--border);
+  outline:none;
+  background: #fff;
+  color: inherit;
+}
+.topbar button {
+  padding:8px 10px;
+  border-radius:8px;
+  border:1px solid var(--border);
+  background:white;
+  cursor:pointer;
+  white-space:nowrap;
+}
+
+.section { margin-bottom:12px; }
+
+/* pinned bar: icons only */
+.pinned-bar {
+  display:flex;
+  gap:8px;
+  padding:8px 4px;
+  overflow-x:auto;
+  align-items:center;
+  min-height:40px;
+}
+
+.pinned-item {
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  width:36px;
+  min-width:36px;
+  height:36px;
+  padding:4px;
+  border-radius:8px;
+  border:1px solid var(--border);
+  background: #fafafa;
+  cursor:pointer;
+}
+.pinned-item img.fav { width:20px; height:20px; object-fit:contain; }
+
+/* groups / accordions */
+.group {
+  border-radius:8px;
+  padding:0;
+  margin-bottom:10px;
+  box-shadow: var(--shadow);
+  overflow:hidden;
+  border:1px solid rgba(0,0,0,0.06);
+}
+
+/* header background color is set inline by JS */
+.groupHeader {
+  display:flex;
+  align-items:center;
+  gap:8px;
+  justify-content:space-between;
+  cursor:default;
+  padding:10px;
+}
+
+.left {
+  display:flex;
+  align-items:center;
+  gap:8px;
+  min-width:0;
+}
+
+.triangle {
+  width:14px;
+  height:14px;
+  display:inline-block;
+  transform: rotate(0deg);
+  transition: transform .12s linear;
+  font-size:14px;
+  line-height:14px;
+}
+.triangle.expanded { transform: rotate(90deg); }
+
+.groupTitle {
+  font-weight:600;
+  font-size:13px;
+  max-width:180px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.groupCount { font-size:12px; margin-left:6px; opacity:0.95; }
+
+/* tabs area (neutral background) */
+.groupTabs {
+  margin-top:0;
+  padding:8px 10px;
+  display:none;
+  background: rgba(255,255,255,0.98);
+  border-top: 1px solid rgba(0,0,0,0.06);
+}
+
+.tabItem {
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:6px 4px;
+  border-radius:6px;
+}
+
+.tabItem:hover { background:#f6f6f6; }
+
+.tabItem .fav { width:16px; height:16px; object-fit:contain; flex:0 0 auto; }
+.tabItem .tabTitle {
+  font-size:13px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* icon button base (used for tab close) */
+.iconBtn {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: 1px solid rgba(0,0,0,0.18);
+  background: rgba(255,255,255,0.9);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  cursor:pointer;
+  padding:0;
+  line-height: 0;
+  margin-left: 6px;
+}
+
+.iconBtn svg {
+  width: 14px;
+  height: 14px;
+  opacity: 0.75;
+}
+
+.iconBtn:hover { background: rgba(0,0,0,0.04); }
+.iconBtn:active { transform: scale(0.96); }
+
+.footer { margin-top:8px; color:var(--muted); text-align:center; font-size:12px; }
+.hidden { display:none !important; }
+
+/* DARK THEME */
+@media (prefers-color-scheme: dark) {
+  body {
+    background: #0f1113;
+    color: #e6e6e6;
+  }
+  #search {
+    background: #111216;
+    color: #e6e6e6;
+    border:1px solid rgba(255,255,255,0.06);
+  }
+  .topbar button { background:#0f1113; color:inherit; border:1px solid rgba(255,255,255,0.06); }
+  .pinned-item { background:#111216; border:1px solid rgba(255,255,255,0.04); }
+  .group { border:1px solid rgba(255,255,255,0.04); box-shadow: none; }
+  .groupTabs { background: rgba(255,255,255,0.03); border-top: 1px solid rgba(255,255,255,0.04); }
+  .tabItem:hover { background: rgba(255,255,255,0.02); }
+  .footer { color:#9a9a9a; }
+
+  .iconBtn {
+    border: 1px solid rgba(255,255,255,0.16);
+    background: rgba(255,255,255,0.04);
+  }
+  .iconBtn svg { opacity: 0.85; }
+  .iconBtn:hover { background: rgba(255,255,255,0.07); }
+}
+
