@@ -1,5 +1,15 @@
 // sidebar.js (tab close buttons + drag/drop between groups + ungrouped first)
 
+/* ---------------- Toolbar SVG icons ---------------- */
+
+const SVG_SORT = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="14" y2="12"/><line x1="4" y1="18" x2="9" y2="18"/></svg>`;
+
+const SVG_FOLDER_CLOSED = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`;
+
+const SVG_FOLDER_OPEN = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="2" y1="10" x2="22" y2="10"/></svg>`;
+
+const SVG_REFRESH = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>`;
+
 const chromeColorMap = {
   grey:   '#7A7D81',
   blue:   '#3B82F6',
@@ -19,6 +29,7 @@ const $ = id => document.getElementById(id);
 let groupsData = [];
 let pinnedCache = [];
 let sortAlpha = false;
+let sortMenuOpen = false;
 let allOpenState = false;
 let expandedGroupIds = new Set();
 let draggedTabData = null;
@@ -620,15 +631,20 @@ function applySearchFilter() {
 function syncOpenCloseButtonLabel() {
   const btn = $('openCloseBtn');
   if (!btn) return;
-  const label = btn.querySelector('.btn-label');
-
   if (allOpenState) {
-    if (label) label.textContent = 'Collapse';
-    btn.title = 'Collapse all accordions';
+    btn.innerHTML = SVG_FOLDER_OPEN;
+    btn.title = 'Collapse all';
   } else {
-    if (label) label.textContent = 'Expand';
-    btn.title = 'Expand all accordions';
+    btn.innerHTML = SVG_FOLDER_CLOSED;
+    btn.title = 'Expand all';
   }
+}
+
+function updateSortBtnState() {
+  const sortBtn = $('sortBtn');
+  if (sortBtn) sortBtn.classList.toggle('active', sortAlpha);
+  $('sortDefaultBtn')?.classList.toggle('active', !sortAlpha);
+  $('sortAlphaBtn')?.classList.toggle('active', sortAlpha);
 }
 
 function toggleAllAccordions(open) {
@@ -659,38 +675,13 @@ function renderWorkspaceSwitcher() {
 
   const activeWs = workspacesCache[activeWorkspaceIdCache];
 
-  const label = document.createElement('p');
+  // Header row: WORKSPACE label + add button
+  const headerRow = document.createElement('div');
+  headerRow.className = 'ws-header-row';
+
+  const label = document.createElement('span');
   label.className = 'ws-section-label';
-  label.textContent = 'Switch Workspace';
-  bar.appendChild(label);
-
-  // Always-visible row: active workspace name + add button
-  const wsBar = document.createElement('div');
-  wsBar.className = 'ws-bar';
-
-  const activeBtn = document.createElement('button');
-  activeBtn.className = 'ws-active-btn';
-
-  const icon = document.createElement('span');
-  icon.className = 'ws-icon';
-  icon.textContent = '⊞';
-
-  const nameSpan = document.createElement('span');
-  nameSpan.className = 'ws-name';
-  nameSpan.textContent = activeWs ? activeWs.name : 'Workspace';
-
-  const chevron = document.createElement('span');
-  chevron.className = 'ws-chevron' + (wsDropdownOpen ? ' open' : '');
-  chevron.textContent = '▾';
-
-  activeBtn.appendChild(icon);
-  activeBtn.appendChild(nameSpan);
-  activeBtn.appendChild(chevron);
-  activeBtn.addEventListener('click', () => {
-    wsDropdownOpen = !wsDropdownOpen;
-    wsGearMenuForId = null;
-    renderWorkspaceSwitcher();
-  });
+  label.textContent = 'WORKSPACE';
 
   const addBtn = document.createElement('button');
   addBtn.className = 'ws-add-btn';
@@ -703,9 +694,31 @@ function renderWorkspaceSwitcher() {
     renderWorkspaceSwitcher();
   });
 
-  wsBar.appendChild(activeBtn);
-  wsBar.appendChild(addBtn);
-  bar.appendChild(wsBar);
+  headerRow.appendChild(label);
+  headerRow.appendChild(addBtn);
+  bar.appendChild(headerRow);
+
+  // Full-width active workspace dropdown button
+  const activeBtn = document.createElement('button');
+  activeBtn.className = 'ws-active-btn';
+
+  const nameSpan = document.createElement('span');
+  nameSpan.className = 'ws-name';
+  nameSpan.textContent = activeWs ? activeWs.name : 'Workspace';
+
+  const chevron = document.createElement('span');
+  chevron.className = 'ws-chevron' + (wsDropdownOpen ? ' open' : '');
+  chevron.textContent = '▾';
+
+  activeBtn.appendChild(nameSpan);
+  activeBtn.appendChild(chevron);
+  activeBtn.addEventListener('click', () => {
+    wsDropdownOpen = !wsDropdownOpen;
+    wsGearMenuForId = null;
+    renderWorkspaceSwitcher();
+  });
+
+  bar.appendChild(activeBtn);
 
   // Dropdown
   if (wsDropdownOpen) {
@@ -883,8 +896,18 @@ function renderWorkspaceSwitcher() {
   }
 }
 
-// Close all workspace UI panels when clicking outside #workspaceBar
+// Close sort menu and workspace UI panels when clicking outside
 document.addEventListener('click', (e) => {
+  // Close sort menu if click is outside .sort-wrap
+  if (sortMenuOpen) {
+    const sortWrap = document.querySelector('.sort-wrap');
+    if (!sortWrap || !sortWrap.contains(e.target)) {
+      sortMenuOpen = false;
+      $('sortMenu')?.classList.add('hidden');
+    }
+  }
+
+  // Close workspace panels if click is outside #workspaceBar
   const bar = $('workspaceBar');
   if (!bar || bar.contains(e.target)) return;
   if (wsDropdownOpen || wsGearMenuForId || wsCreateFormVisible || wsRenamingId) {
@@ -919,23 +942,47 @@ function wireUI() {
     // elements that were just removed from the DOM by a re-render.
     $('workspaceBar')?.addEventListener('click', (e) => e.stopPropagation());
 
-    $('refreshBtn')?.addEventListener('click', loadAndRender);
-    $('search')?.addEventListener('input', applySearchFilter);
+    // Initialize toolbar icons
+    const sortBtn = $('sortBtn');
+    if (sortBtn) sortBtn.innerHTML = SVG_SORT;
 
-    $('sortBtn')?.addEventListener('click', async () => {
-      sortAlpha = !sortAlpha;
-      const sb = $('sortBtn');
-      const label = sb?.querySelector('.btn-label');
-      if (label) label.textContent = sortAlpha ? 'A→Z' : 'Default';
-      renderUI(pinnedCache, groupsData);
-      await loadAndRender();
+    const refreshBtn = $('refreshBtn');
+    if (refreshBtn) refreshBtn.innerHTML = SVG_REFRESH;
+
+    // Sort button opens dropdown
+    sortBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      sortMenuOpen = !sortMenuOpen;
+      $('sortMenu')?.classList.toggle('hidden', !sortMenuOpen);
+    });
+
+    $('sortDefaultBtn')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      sortAlpha = false;
+      sortMenuOpen = false;
+      $('sortMenu')?.classList.add('hidden');
+      updateSortBtnState();
+      loadAndRender();
+    });
+
+    $('sortAlphaBtn')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      sortAlpha = true;
+      sortMenuOpen = false;
+      $('sortMenu')?.classList.add('hidden');
+      updateSortBtnState();
+      loadAndRender();
     });
 
     $('openCloseBtn')?.addEventListener('click', () => {
       toggleAllAccordions(!allOpenState);
     });
 
+    refreshBtn?.addEventListener('click', loadAndRender);
+    $('search')?.addEventListener('input', applySearchFilter);
+
     syncOpenCloseButtonLabel();
+    updateSortBtnState();
   } catch (e) {
     console.error('wireUI error:', e);
     showStatus('UI wiring error — see console.');

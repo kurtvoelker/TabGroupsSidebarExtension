@@ -8,27 +8,29 @@
 </head>
 <body>
   <div id="root">
-    <div class="topbar">
-      <input id="search" placeholder="Search tabs..." />
-      <div class="toolbar-buttons">
-        <button id="sortBtn" title="Toggle sort">
-          <span class="btn-icon">⇅</span>
-          <span class="btn-label">Default</span>
-        </button>
-        <button id="openCloseBtn" title="Expand all accordions">
-          <span class="btn-icon">📂</span>
-          <span class="btn-label">Expand</span>
-        </button>
-        <button id="refreshBtn" title="Refresh">
-          <span class="btn-icon">↻</span>
-          <span class="btn-label">Refresh</span>
-        </button>
-      </div>
-    </div>
+    <input id="search" placeholder="Search tabs..." />
+    <div class="sidebar-sep"></div>
 
     <div id="workspaceBar"></div>
 
-    <section id="pinnedSection" class="section">
+    <div class="sidebar-sep"></div>
+
+    <div class="icon-toolbar">
+      <div class="sort-wrap">
+        <button id="sortBtn" title="Sort"></button>
+        <div id="sortMenu" class="sort-menu hidden">
+          <button id="sortDefaultBtn">Chrome Order</button>
+          <button id="sortAlphaBtn">A to Z</button>
+        </div>
+      </div>
+      <button id="openCloseBtn" title="Expand all"></button>
+      <button id="refreshBtn" title="Refresh"></button>
+    </div>
+
+    <div class="sidebar-sep"></div>
+
+    <section id="pinnedSection" class="section hidden">
+      <p class="section-label">PINNED</p>
       <div id="pinnedBar" class="pinned-bar"></div>
     </section>
 
@@ -47,4 +49,3 @@
   <script src="sidebar.js"></script>
 </body>
 </html>
-
