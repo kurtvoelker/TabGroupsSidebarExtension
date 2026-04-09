@@ -317,7 +317,7 @@ async function fetchGroupInfo(groupId) {
     const info = await chrome.tabGroups.get(groupId);
     return { id: groupId, title: info.title || '(untitled)', color: info.color || 'default' };
   } catch (e) {
-    console.warn('fetchGroupInfo failed for', groupId, e);
+    console.debug('fetchGroupInfo: group', groupId, 'no longer exists (transient during switch)');
     return { id: groupId, title: `(group ${groupId})`, color: 'default' };
   }
 }
