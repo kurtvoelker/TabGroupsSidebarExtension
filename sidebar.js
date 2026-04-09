@@ -909,6 +909,11 @@ async function doSwitchWorkspace(targetId) {
 
 function wireUI() {
   try {
+    // Stop all clicks inside the workspace bar from bubbling to the document
+    // outside-click handler — prevents the handler from seeing clicks on
+    // elements that were just removed from the DOM by a re-render.
+    $('workspaceBar')?.addEventListener('click', (e) => e.stopPropagation());
+
     $('refreshBtn')?.addEventListener('click', loadAndRender);
     $('search')?.addEventListener('input', applySearchFilter);
 
