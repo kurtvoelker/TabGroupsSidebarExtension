@@ -637,6 +637,18 @@ function toggleAllAccordions(open) {
   syncOpenCloseButtonLabel();
 }
 
+/* ---------------- Workspace switch (called by UI in Phase 4) ---------------- */
+
+async function doSwitchWorkspace(targetId) {
+  try {
+    await switchWorkspace(targetId, expandedGroupIds, allOpenState);
+    await loadAndRender();
+  } catch (e) {
+    console.error('doSwitchWorkspace failed:', e);
+    showStatus('Failed to switch workspace — see console.');
+  }
+}
+
 /* ---------------- UI wiring ---------------- */
 
 function wireUI() {
