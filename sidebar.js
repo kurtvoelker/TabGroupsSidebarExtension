@@ -659,6 +659,11 @@ function renderWorkspaceSwitcher() {
 
   const activeWs = workspacesCache[activeWorkspaceIdCache];
 
+  const label = document.createElement('p');
+  label.className = 'ws-section-label';
+  label.textContent = 'Switch Workspace';
+  bar.appendChild(label);
+
   // Always-visible row: active workspace name + add button
   const wsBar = document.createElement('div');
   wsBar.className = 'ws-bar';
