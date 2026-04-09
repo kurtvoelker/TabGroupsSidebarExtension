@@ -22,6 +22,17 @@ let sortAlpha = false;
 let allOpenState = false;
 let expandedGroupIds = new Set();
 let draggedTabData = null;
+let _saveDebounceTimer = null;
+
+function scheduleSave() {
+  clearTimeout(_saveDebounceTimer);
+  // Capture expandedGroupIds and allOpenState at call time so the timeout
+  // always uses the latest values (both are module-level lets).
+  _saveDebounceTimer = setTimeout(
+    () => saveWorkspaceNow(expandedGroupIds, allOpenState),
+    500
+  );
+}
 
 /* ---------------- Error/status helpers ---------------- */
 
@@ -251,11 +262,7 @@ async function loadAndRender() {
   try {
     let tabs = [];
     try {
-      tabs = await chrome.tabs.query({ currentWindow: true });
-      if (!tabs || tabs.length === 0) {
-        tabs = await chrome.tabs.query({});
-        showStatus('Showing tabs from all windows (fallback).');
-      }
+      tabs = await chrome.tabs.query({});
     } catch (apiErr) {
       console.error('chrome.tabs.query failed:', apiErr);
       try {
@@ -659,21 +666,28 @@ function wireUI() {
 
 /* ---------------- Init ---------------- */
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   wireUI();
+
+  try {
+    await initWorkspaces();
+  } catch (e) {
+    console.error('initWorkspaces failed:', e);
+  }
+
   loadAndRender();
 
   try {
     if (chrome && chrome.tabs) {
-      chrome.tabs.onUpdated && chrome.tabs.onUpdated.addListener(() => loadAndRender());
-      chrome.tabs.onCreated && chrome.tabs.onCreated.addListener(() => loadAndRender());
-      chrome.tabs.onRemoved && chrome.tabs.onRemoved.addListener(() => loadAndRender());
-      chrome.tabs.onMoved && chrome.tabs.onMoved.addListener(() => loadAndRender());
-      chrome.tabs.onAttached && chrome.tabs.onAttached.addListener(() => loadAndRender());
-      chrome.tabs.onDetached && chrome.tabs.onDetached.addListener(() => loadAndRender());
+      chrome.tabs.onUpdated && chrome.tabs.onUpdated.addListener(() => { loadAndRender(); scheduleSave(); });
+      chrome.tabs.onCreated && chrome.tabs.onCreated.addListener(() => { loadAndRender(); scheduleSave(); });
+      chrome.tabs.onRemoved && chrome.tabs.onRemoved.addListener(() => { loadAndRender(); scheduleSave(); });
+      chrome.tabs.onMoved && chrome.tabs.onMoved.addListener(() => { loadAndRender(); scheduleSave(); });
+      chrome.tabs.onAttached && chrome.tabs.onAttached.addListener(() => { loadAndRender(); scheduleSave(); });
+      chrome.tabs.onDetached && chrome.tabs.onDetached.addListener(() => { loadAndRender(); scheduleSave(); });
     }
     if (chrome && chrome.tabGroups && chrome.tabGroups.onChanged) {
-      chrome.tabGroups.onChanged.addListener(() => loadAndRender());
+      chrome.tabGroups.onChanged.addListener(() => { loadAndRender(); scheduleSave(); });
     }
   } catch (attachErr) {
     console.warn('Could not attach listeners:', attachErr);
