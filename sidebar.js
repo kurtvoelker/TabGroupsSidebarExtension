@@ -24,6 +24,14 @@ let expandedGroupIds = new Set();
 let draggedTabData = null;
 let _saveDebounceTimer = null;
 
+// Workspace UI state
+let workspacesCache = {};
+let activeWorkspaceIdCache = 'ws_default';
+let wsDropdownOpen = false;
+let wsGearMenuForId = null;  // id of the workspace whose gear menu is open
+let wsRenamingId = null;     // id of the workspace currently being renamed inline
+let wsCreateFormVisible = false;
+
 function scheduleSave() {
   clearTimeout(_saveDebounceTimer);
   // Capture expandedGroupIds and allOpenState at call time so the timeout
@@ -301,7 +309,7 @@ function groupTabsByGroupId(tabs) {
 }
 
 async function fetchGroupInfo(groupId) {
-  if (groupId === -1) return { id: -1, title: '(ungrouped)', color: 'default' };
+  if (groupId === -1) return { id: -1, title: 'Ungrouped', color: 'default' };
   try {
     if (!chrome.tabGroups || !chrome.tabGroups.get) {
       return { id: groupId, title: `(group ${groupId})`, color: 'default' };
@@ -322,7 +330,7 @@ async function renderFromTabs(tabs) {
     if (byId.has(-1)) {
       groups.push({
         groupId: -1,
-        title: '(ungrouped)',
+        title: 'Ungrouped',
         color: 'default',
         tabs: byId.get(-1) || []
       });
@@ -637,11 +645,259 @@ function toggleAllAccordions(open) {
   syncOpenCloseButtonLabel();
 }
 
-/* ---------------- Workspace switch (called by UI in Phase 4) ---------------- */
+/* ---------------- Workspace UI ---------------- */
+
+async function refreshWorkspacesCache() {
+  workspacesCache = await getAllWorkspaces();
+  activeWorkspaceIdCache = await getActiveWorkspaceId();
+}
+
+function renderWorkspaceSwitcher() {
+  const bar = $('workspaceBar');
+  if (!bar) return;
+  bar.innerHTML = '';
+
+  const activeWs = workspacesCache[activeWorkspaceIdCache];
+
+  // Always-visible row: active workspace name + add button
+  const wsBar = document.createElement('div');
+  wsBar.className = 'ws-bar';
+
+  const activeBtn = document.createElement('button');
+  activeBtn.className = 'ws-active-btn';
+
+  const icon = document.createElement('span');
+  icon.className = 'ws-icon';
+  icon.textContent = '⊞';
+
+  const nameSpan = document.createElement('span');
+  nameSpan.className = 'ws-name';
+  nameSpan.textContent = activeWs ? activeWs.name : 'Workspace';
+
+  const chevron = document.createElement('span');
+  chevron.className = 'ws-chevron' + (wsDropdownOpen ? ' open' : '');
+  chevron.textContent = '▾';
+
+  activeBtn.appendChild(icon);
+  activeBtn.appendChild(nameSpan);
+  activeBtn.appendChild(chevron);
+  activeBtn.addEventListener('click', () => {
+    wsDropdownOpen = !wsDropdownOpen;
+    wsGearMenuForId = null;
+    renderWorkspaceSwitcher();
+  });
+
+  const addBtn = document.createElement('button');
+  addBtn.className = 'ws-add-btn';
+  addBtn.title = 'New workspace';
+  addBtn.textContent = '+';
+  addBtn.addEventListener('click', () => {
+    wsDropdownOpen = false;
+    wsGearMenuForId = null;
+    wsCreateFormVisible = true;
+    renderWorkspaceSwitcher();
+  });
+
+  wsBar.appendChild(activeBtn);
+  wsBar.appendChild(addBtn);
+  bar.appendChild(wsBar);
+
+  // Dropdown
+  if (wsDropdownOpen) {
+    const dropdown = document.createElement('div');
+    dropdown.className = 'ws-dropdown';
+
+    // Active workspace first, then rest alphabetically
+    const sorted = Object.values(workspacesCache).sort((a, b) => {
+      if (a.id === activeWorkspaceIdCache) return -1;
+      if (b.id === activeWorkspaceIdCache) return 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    for (const ws of sorted) {
+      const item = document.createElement('div');
+      item.className = 'ws-dropdown-item';
+
+      const check = document.createElement('span');
+      check.className = 'ws-check';
+      check.textContent = ws.id === activeWorkspaceIdCache ? '✓' : '';
+
+      if (wsRenamingId === ws.id) {
+        // Inline rename form replaces the name + gear
+        const input = document.createElement('input');
+        input.className = 'ws-rename-input';
+        input.value = ws.name;
+        input.placeholder = 'Workspace name...';
+
+        const confirmBtn = document.createElement('button');
+        confirmBtn.className = 'ws-rename-confirm';
+        confirmBtn.textContent = '✓';
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'ws-rename-cancel';
+        cancelBtn.textContent = '✕';
+
+        const submitRename = async () => {
+          const newName = input.value.trim();
+          if (newName) {
+            await renameWorkspace(ws.id, newName);
+            await refreshWorkspacesCache();
+          }
+          wsRenamingId = null;
+          renderWorkspaceSwitcher();
+        };
+        const cancelRename = () => { wsRenamingId = null; renderWorkspaceSwitcher(); };
+
+        confirmBtn.addEventListener('click', (e) => { e.stopPropagation(); submitRename(); });
+        cancelBtn.addEventListener('click', (e) => { e.stopPropagation(); cancelRename(); });
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') submitRename();
+          if (e.key === 'Escape') cancelRename();
+        });
+        input.addEventListener('click', (e) => e.stopPropagation());
+
+        item.appendChild(check);
+        item.appendChild(input);
+        item.appendChild(confirmBtn);
+        item.appendChild(cancelBtn);
+        dropdown.appendChild(item);
+        requestAnimationFrame(() => { input.focus(); input.select(); });
+        continue;
+      }
+
+      // Normal item
+      const wsName = document.createElement('span');
+      wsName.className = 'ws-item-name' + (ws.id === activeWorkspaceIdCache ? ' active' : '');
+      wsName.textContent = ws.name;
+
+      const gearBtn = document.createElement('button');
+      gearBtn.className = 'ws-gear-btn' + (wsGearMenuForId === ws.id ? ' open' : '');
+      gearBtn.title = 'Options';
+      gearBtn.textContent = '⚙';
+      gearBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        wsGearMenuForId = wsGearMenuForId === ws.id ? null : ws.id;
+        renderWorkspaceSwitcher();
+      });
+
+      item.appendChild(check);
+      item.appendChild(wsName);
+      item.appendChild(gearBtn);
+
+      if (ws.id !== activeWorkspaceIdCache) {
+        item.addEventListener('click', async () => {
+          wsDropdownOpen = false;
+          wsGearMenuForId = null;
+          renderWorkspaceSwitcher();
+          await doSwitchWorkspace(ws.id);
+        });
+      }
+
+      // Gear context menu
+      if (wsGearMenuForId === ws.id) {
+        const gearMenu = document.createElement('div');
+        gearMenu.className = 'ws-gear-menu';
+
+        const renameOpt = document.createElement('button');
+        renameOpt.textContent = 'Rename';
+        renameOpt.addEventListener('click', (e) => {
+          e.stopPropagation();
+          wsGearMenuForId = null;
+          wsRenamingId = ws.id;
+          renderWorkspaceSwitcher();
+        });
+        gearMenu.appendChild(renameOpt);
+
+        if (ws.id !== 'ws_default') {
+          const deleteOpt = document.createElement('button');
+          deleteOpt.textContent = 'Delete';
+          deleteOpt.className = 'ws-delete';
+          deleteOpt.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            wsGearMenuForId = null;
+            if (confirm(`Delete "${ws.name}"? This cannot be undone.`)) {
+              try {
+                await deleteWorkspace(ws.id);
+                await refreshWorkspacesCache();
+              } catch (err) {
+                showStatus(err.message);
+              }
+            }
+            renderWorkspaceSwitcher();
+          });
+          gearMenu.appendChild(deleteOpt);
+        }
+
+        item.appendChild(gearMenu);
+      }
+
+      dropdown.appendChild(item);
+    }
+
+    bar.appendChild(dropdown);
+  }
+
+  // New workspace create form
+  if (wsCreateFormVisible) {
+    const form = document.createElement('div');
+    form.className = 'ws-create-form';
+
+    const input = document.createElement('input');
+    input.placeholder = 'Workspace name...';
+
+    const confirmBtn = document.createElement('button');
+    confirmBtn.className = 'ws-create-confirm';
+    confirmBtn.textContent = '✓';
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'ws-create-cancel';
+    cancelBtn.textContent = '✕';
+
+    const submitCreate = async () => {
+      const name = input.value.trim();
+      if (!name) { input.focus(); return; }
+      await createWorkspace(name);
+      await refreshWorkspacesCache();
+      wsCreateFormVisible = false;
+      renderWorkspaceSwitcher();
+    };
+    const cancelCreate = () => { wsCreateFormVisible = false; renderWorkspaceSwitcher(); };
+
+    confirmBtn.addEventListener('click', submitCreate);
+    cancelBtn.addEventListener('click', cancelCreate);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') submitCreate();
+      if (e.key === 'Escape') cancelCreate();
+    });
+
+    form.appendChild(input);
+    form.appendChild(confirmBtn);
+    form.appendChild(cancelBtn);
+    bar.appendChild(form);
+    requestAnimationFrame(() => input.focus());
+  }
+}
+
+// Close all workspace UI panels when clicking outside #workspaceBar
+document.addEventListener('click', (e) => {
+  const bar = $('workspaceBar');
+  if (!bar || bar.contains(e.target)) return;
+  if (wsDropdownOpen || wsGearMenuForId || wsCreateFormVisible || wsRenamingId) {
+    wsDropdownOpen = false;
+    wsGearMenuForId = null;
+    wsRenamingId = null;
+    wsCreateFormVisible = false;
+    renderWorkspaceSwitcher();
+  }
+});
+
+/* ---------------- Workspace switch ---------------- */
 
 async function doSwitchWorkspace(targetId) {
   try {
     await switchWorkspace(targetId, expandedGroupIds, allOpenState);
+    await refreshWorkspacesCache();
+    renderWorkspaceSwitcher();
     await loadAndRender();
   } catch (e) {
     console.error('doSwitchWorkspace failed:', e);
@@ -683,10 +939,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   try {
     await initWorkspaces();
+    await refreshWorkspacesCache();
   } catch (e) {
     console.error('initWorkspaces failed:', e);
   }
 
+  renderWorkspaceSwitcher();
   loadAndRender();
 
   try {
