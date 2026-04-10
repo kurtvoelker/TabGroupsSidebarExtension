@@ -21,6 +21,14 @@ body {
   font-size: 13px;
 }
 
+#root {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - 24px); /* 24px = body top + bottom padding */
+}
+
+#groupsSection { flex: 1; }
+
 .sidebar-sep {
   height: 1px;
   background: var(--border);
@@ -247,7 +255,13 @@ body {
   outline-offset: -2px;
 }
 
-.footer { margin-top: 8px; }
+.footer {
+  margin-top: 8px;
+  position: sticky;
+  bottom: -12px;       /* counteract body's bottom padding so panel edge meets viewport edge */
+  padding-bottom: 12px;
+  background: #ffffff;
+}
 
 /* ---- Pro upgrade panel ---- */
 
@@ -589,14 +603,21 @@ body {
 /* Create form */
 .ws-create-form {
   display: flex;
-  gap: 6px;
-  align-items: center;
+  flex-direction: column;
+  gap: 7px;
   margin-top: 6px;
   padding: 8px;
   background: #eef0f3;
   border-radius: 10px;
 }
-.ws-create-form input {
+
+.ws-create-input-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.ws-create-input-row input {
   flex: 1;
   padding: 7px 10px;
   background: #ffffff;
@@ -607,7 +628,8 @@ body {
   outline: none;
   min-width: 0;
 }
-.ws-create-form input::placeholder { color: rgba(0,0,0,0.35); }
+.ws-create-input-row input::placeholder { color: rgba(0,0,0,0.35); }
+
 .ws-create-confirm,
 .ws-create-cancel {
   flex-shrink: 0;
@@ -625,6 +647,57 @@ body {
 }
 .ws-create-confirm:hover,
 .ws-create-cancel:hover { background: rgba(0,0,0,0.09); }
+
+/* Usage indicator row (free users) */
+.ws-create-usage {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--muted);
+  padding: 0 2px;
+}
+
+.ws-create-pro-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: #6c63ff;
+  cursor: pointer;
+}
+.ws-create-pro-link:hover { text-decoration: underline; }
+
+/* Limit-reached state */
+.ws-create-limit-msg {
+  margin: 0;
+  font-size: 12px;
+  color: rgba(0,0,0,0.6);
+  line-height: 1.4;
+}
+
+.ws-create-upgrade-btn {
+  flex: 1;
+  padding: 7px 10px;
+  border-radius: 7px;
+  border: none;
+  background: linear-gradient(135deg, #6c63ff, #a78bfa);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: center;
+}
+.ws-create-upgrade-btn:hover { opacity: 0.88; }
+
+/* Limit-reached row (upgrade btn + cancel) */
+.ws-create-form .ws-create-upgrade-btn,
+.ws-create-form .ws-create-cancel {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
 
 @media (prefers-color-scheme: dark) {
   :root { --color-scheme: dark; }
@@ -701,12 +774,15 @@ body {
   .ws-rename-confirm:hover,
   .ws-rename-cancel:hover { background: rgba(255,255,255,0.14); }
   .ws-create-form { background: #1e2023; }
-  .ws-create-form input { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.12); color: rgba(255,255,255,0.85); }
-  .ws-create-form input::placeholder { color: rgba(255,255,255,0.35); }
+  .ws-create-input-row input { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.12); color: rgba(255,255,255,0.85); }
+  .ws-create-input-row input::placeholder { color: rgba(255,255,255,0.35); }
   .ws-create-confirm,
   .ws-create-cancel { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.12); color: rgba(255,255,255,0.7); }
   .ws-create-confirm:hover,
   .ws-create-cancel:hover { background: rgba(255,255,255,0.14); }
+  .ws-create-usage { color: #9a9a9a; }
+  .ws-create-limit-msg { color: rgba(255,255,255,0.55); }
+  .footer { background: #0f1113; }
 
   /* Pro panel — dark mode */
   .pro-panel { background: #1a1c1f; border-color: rgba(255,255,255,0.07); }

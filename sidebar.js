@@ -865,42 +865,105 @@ function renderWorkspaceSwitcher() {
 
   // New workspace create form
   if (wsCreateFormVisible) {
+    const isPro = canUseFeature(FEATURES.MULTIPLE_WORKSPACES);
+    const wsCount = Object.keys(workspacesCache).length;
+    const atLimit = !isPro && wsCount >= FREE_WORKSPACE_LIMIT;
+
     const form = document.createElement('div');
     form.className = 'ws-create-form';
 
-    const input = document.createElement('input');
-    input.placeholder = 'Workspace name...';
+    if (atLimit) {
+      // Limit reached — show upgrade nudge instead of input
+      const limitMsg = document.createElement('p');
+      limitMsg.className = 'ws-create-limit-msg';
+      limitMsg.textContent = `Free plan includes up to ${FREE_WORKSPACE_LIMIT} workspaces.`;
 
-    const confirmBtn = document.createElement('button');
-    confirmBtn.className = 'ws-create-confirm';
-    confirmBtn.textContent = '✓';
+      const btnRow = document.createElement('div');
+      btnRow.className = 'ws-create-input-row';
 
-    const cancelBtn = document.createElement('button');
-    cancelBtn.className = 'ws-create-cancel';
-    cancelBtn.textContent = '✕';
+      const upgradeBtn = document.createElement('button');
+      upgradeBtn.className = 'ws-create-upgrade-btn';
+      upgradeBtn.textContent = 'Get Pro for unlimited →';
+      upgradeBtn.addEventListener('click', () => {
+        const url = getStoreUrl();
+        if (url) chrome.tabs.create({ url });
+        wsCreateFormVisible = false;
+        renderWorkspaceSwitcher();
+      });
 
-    const submitCreate = async () => {
-      const name = input.value.trim();
-      if (!name) { input.focus(); return; }
-      await createWorkspace(name);
-      await refreshWorkspacesCache();
-      wsCreateFormVisible = false;
-      renderWorkspaceSwitcher();
-    };
-    const cancelCreate = () => { wsCreateFormVisible = false; renderWorkspaceSwitcher(); };
+      const cancelBtn = document.createElement('button');
+      cancelBtn.className = 'ws-create-cancel';
+      cancelBtn.textContent = '✕';
+      cancelBtn.addEventListener('click', () => { wsCreateFormVisible = false; renderWorkspaceSwitcher(); });
 
-    confirmBtn.addEventListener('click', submitCreate);
-    cancelBtn.addEventListener('click', cancelCreate);
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') submitCreate();
-      if (e.key === 'Escape') cancelCreate();
-    });
+      btnRow.appendChild(upgradeBtn);
+      btnRow.appendChild(cancelBtn);
+      form.appendChild(limitMsg);
+      form.appendChild(btnRow);
+    } else {
+      // Normal create form
+      const inputRow = document.createElement('div');
+      inputRow.className = 'ws-create-input-row';
 
-    form.appendChild(input);
-    form.appendChild(confirmBtn);
-    form.appendChild(cancelBtn);
+      const input = document.createElement('input');
+      input.placeholder = 'Workspace name...';
+
+      const confirmBtn = document.createElement('button');
+      confirmBtn.className = 'ws-create-confirm';
+      confirmBtn.textContent = '✓';
+
+      const cancelBtn = document.createElement('button');
+      cancelBtn.className = 'ws-create-cancel';
+      cancelBtn.textContent = '✕';
+
+      const submitCreate = async () => {
+        const name = input.value.trim();
+        if (!name) { input.focus(); return; }
+        await createWorkspace(name);
+        await refreshWorkspacesCache();
+        wsCreateFormVisible = false;
+        renderWorkspaceSwitcher();
+      };
+      const cancelCreate = () => { wsCreateFormVisible = false; renderWorkspaceSwitcher(); };
+
+      confirmBtn.addEventListener('click', submitCreate);
+      cancelBtn.addEventListener('click', cancelCreate);
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') submitCreate();
+        if (e.key === 'Escape') cancelCreate();
+      });
+
+      inputRow.appendChild(input);
+      inputRow.appendChild(confirmBtn);
+      inputRow.appendChild(cancelBtn);
+      form.appendChild(inputRow);
+
+      // Usage indicator for free users
+      if (!isPro) {
+        const usage = document.createElement('div');
+        usage.className = 'ws-create-usage';
+
+        const usageText = document.createElement('span');
+        usageText.textContent = `Using ${wsCount} of ${FREE_WORKSPACE_LIMIT} free workspaces`;
+
+        const proLink = document.createElement('button');
+        proLink.className = 'ws-create-pro-link';
+        proLink.textContent = 'Get Pro';
+        proLink.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const url = getStoreUrl();
+          if (url) chrome.tabs.create({ url });
+        });
+
+        usage.appendChild(usageText);
+        usage.appendChild(proLink);
+        form.appendChild(usage);
+      }
+
+      requestAnimationFrame(() => input.focus());
+    }
+
     bar.appendChild(form);
-    requestAnimationFrame(() => input.focus());
   }
 }
 

@@ -9,6 +9,8 @@ const FEATURES = {
   CLOUD_SYNC:          'cloud_sync'
 };
 
+const FREE_WORKSPACE_LIMIT = 3; // eslint-disable-line no-unused-vars
+
 // LemonSqueezy store — update these when the store is live.
 const LS_API_URL   = 'https://api.lemonsqueezy.com/v1/licenses/validate';
 const LS_STORE_ID  = null;  // e.g. 12345  — fill in before launch
