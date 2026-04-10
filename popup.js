@@ -140,12 +140,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Sidebar toggle button — open if closed, close if open
   const sidebarBtn = document.getElementById('openSidebarBtn');
   if (sidebarBtn) {
-    // Check current sidebar state from session storage
+    // Ping the sidebar to check if it's currently open.
+    // If it responds, it's alive. If it throws, no sidebar page is running.
     let sidebarOpen = false;
     try {
-      const result = await chrome.storage.session.get('_sidebarOpen');
-      sidebarOpen = !!result._sidebarOpen;
-    } catch (e) { /* session storage unavailable */ }
+      const response = await chrome.runtime.sendMessage({ action: 'pingSidebar' });
+      sidebarOpen = !!(response && response.alive);
+    } catch (e) { /* no response means sidebar is not open */ }
 
     // Update button label to reflect state
     const label = sidebarBtn.querySelector('.sidebar-btn-label');

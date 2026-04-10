@@ -1290,17 +1290,20 @@ function wireUI() {
 
 /* ---------------- Init ---------------- */
 
-// Tell the popup whether the sidebar is open, and listen for close requests.
+// Respond to popup pings so it can detect whether the sidebar is open,
+// and handle close requests.
 try {
-  chrome.storage.session.set({ _sidebarOpen: true });
-  window.addEventListener('pagehide', () => {
-    chrome.storage.session.set({ _sidebarOpen: false });
-  });
-  chrome.runtime.onMessage.addListener((msg) => {
-    if (msg && msg.action === 'closeSidebar') window.close();
+  chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+    if (msg && msg.action === 'pingSidebar') {
+      sendResponse({ alive: true });
+      return true;
+    }
+    if (msg && msg.action === 'closeSidebar') {
+      window.close();
+    }
   });
 } catch (e) {
-  console.warn('sidebar: session tracking unavailable', e);
+  console.warn('sidebar: message listener unavailable', e);
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
