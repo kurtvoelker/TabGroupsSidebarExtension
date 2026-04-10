@@ -15,8 +15,8 @@ async function captureCurrentState(expandedGroupIds = new Set(), allOpen = false
   // restore focus to it when this workspace is next loaded.
   let activeTabId = null;
   try {
-    const win = await chrome.windows.getCurrent({ populate: false });
-    const [activeTab] = await chrome.tabs.query({ active: true, windowId: win.id });
+    // lastFocusedWindow works from any extension context (sidebar, popup, background).
+    const [activeTab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
     if (activeTab) activeTabId = activeTab.id;
   } catch (e) {
     console.warn('captureCurrentState: could not determine active tab', e);
@@ -170,8 +170,10 @@ async function switchWorkspace(targetId, expandedGroupIds, allOpenState) {
 
   _switchInProgress = true;
   try {
-    // Identify the window the sidebar belongs to.
-    const currentWindow = await chrome.windows.getCurrent({ populate: false });
+    // getLastFocused with windowTypes:'normal' works from any extension context
+    // (sidebar, popup, background). getCurrent() would return the popup window
+    // itself when called from a popup, which is wrong.
+    const currentWindow = await chrome.windows.getLastFocused({ populate: false, windowTypes: ['normal'] });
     const windowId = currentWindow.id;
 
     // Save current state BEFORE touching any tabs.

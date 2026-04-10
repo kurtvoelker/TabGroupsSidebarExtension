@@ -102,6 +102,20 @@ async function handleSwitch(targetId, targetName) {
 /* ---------------- Init ---------------- */
 
 document.addEventListener('DOMContentLoaded', async () => {
+  // Open sidebar button
+  document.getElementById('openSidebarBtn')?.addEventListener('click', async () => {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      if (tab && tab.windowId) {
+        await chrome.sidePanel.open({ windowId: tab.windowId });
+      }
+    } catch (e) {
+      console.error('popup: could not open sidebar', e);
+    }
+    window.close();
+  });
+
+  // Load workspace list
   const list = document.getElementById('workspaceList');
   list.innerHTML = '<div class="popup-state">Loading…</div>';
 

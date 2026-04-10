@@ -32,6 +32,21 @@ body {
   text-transform: uppercase;
 }
 
+#openSidebarBtn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px;
+  border-radius: 7px;
+  border: 1px solid rgba(0,0,0,0.12);
+  background: transparent;
+  color: rgba(0,0,0,0.55);
+  font-size: 12px;
+  cursor: pointer;
+}
+#openSidebarBtn svg { width: 14px; height: 14px; }
+#openSidebarBtn:hover { background: rgba(0,0,0,0.05); color: rgba(0,0,0,0.8); }
+
 /* ---- Workspace list ---- */
 
 #workspaceList { display: flex; flex-direction: column; gap: 2px; }
@@ -132,6 +147,9 @@ body {
   .ws-check { color: #a78bfa; }
   .ws-count { color: rgba(255,255,255,0.35); }
   .ws-groups { color: rgba(255,255,255,0.25); }
+
+  #openSidebarBtn { border-color: rgba(255,255,255,0.1); color: rgba(255,255,255,0.5); }
+  #openSidebarBtn:hover { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.85); }
 
   .popup-state { color: rgba(255,255,255,0.4); }
   .popup-state.error { color: #ff6b6b; }
