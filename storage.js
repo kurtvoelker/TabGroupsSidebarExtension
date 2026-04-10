@@ -1,16 +1,45 @@
-// storage.js — workspace persistence layer (chrome.storage.local)
+// storage.js — workspace persistence layer
+// Depends on: permissions.js (loaded first)
 // No DOM access. No Chrome tabs API. Pure data operations.
+//
+// Free tier  → chrome.storage.local  (device-only, 10MB)
+// Pro tier   → chrome.storage.sync   (cross-device, 100KB total / 8KB per item)
+//
+// License data is always stored in chrome.storage.local regardless of tier.
+// Workspace data lives in whichever storage the user's tier allows.
 
 const WS_DEFAULT_ID = 'ws_default'; // eslint-disable-line no-unused-vars
+
+/* ---------------- Storage backend selector ---------------- */
+
+// Returns the appropriate StorageArea for workspace data.
+function _getStorage() {
+  if (
+    typeof canUseFeature === 'function' &&
+    canUseFeature(FEATURES.CLOUD_SYNC) &&
+    chrome.storage.sync
+  ) {
+    return chrome.storage.sync;
+  }
+  return chrome.storage.local;
+}
 
 /* ---------------- Storage primitives ---------------- */
 
 function storageGet(keys) {
-  return new Promise((resolve) => chrome.storage.local.get(keys, resolve));
+  return new Promise((resolve) => _getStorage().get(keys, resolve));
 }
 
 function storageSet(data) {
-  return new Promise((resolve) => chrome.storage.local.set(data, resolve));
+  return new Promise((resolve, reject) => {
+    _getStorage().set(data, () => {
+      if (chrome.runtime.lastError) {
+        reject(chrome.runtime.lastError);
+      } else {
+        resolve();
+      }
+    });
+  });
 }
 
 /* ---------------- Init ---------------- */
@@ -67,16 +96,31 @@ async function setActiveWorkspaceId(id) {
 }
 
 // Merges workspaceData into the stored record for `id`.
-// Does not capture Chrome state — caller provides the data.
 async function saveWorkspace(id, workspaceData) {
-  const workspaces = await getAllWorkspaces();
+  let workspaces;
+  try {
+    workspaces = await getAllWorkspaces();
+  } catch (e) {
+    console.error('saveWorkspace: failed to read workspaces before saving', e);
+    return;
+  }
+
   workspaces[id] = {
     ...(workspaces[id] || {}),
     ...workspaceData,
-    id,                  // id is never overwritten by incoming data
+    id,
     updatedAt: Date.now()
   };
-  await storageSet({ workspaces });
+
+  try {
+    await storageSet({ workspaces });
+  } catch (e) {
+    // Surface quota errors clearly so the UI can warn the user.
+    if (e.message && e.message.includes('QUOTA_BYTES')) {
+      throw new StorageQuotaError(e.message);
+    }
+    throw e;
+  }
 }
 
 // Pro-gated by the caller via canUseFeature(FEATURES.MULTIPLE_WORKSPACES).
@@ -121,11 +165,52 @@ async function renameWorkspace(id, name) {
 
 /* ---------------- Quota ---------------- */
 
+// Returns usage info for the active storage backend.
 async function checkStorageQuota() {
+  const backend = _getStorage();
   return new Promise((resolve) => {
-    chrome.storage.local.getBytesInUse(null, (used) => {
-      const quota = chrome.storage.local.QUOTA_BYTES || 10485760;
-      resolve({ used, quota, pct: Math.round((used / quota) * 100) });
+    backend.getBytesInUse(null, (used) => {
+      const quota = backend.QUOTA_BYTES || (backend === chrome.storage.sync ? 102400 : 10485760);
+      resolve({ used, quota, pct: Math.round((used / quota) * 100), sync: backend === chrome.storage.sync });
     });
   });
+}
+
+/* ---------------- Sync migration ---------------- */
+
+// Call when a user activates a Pro license to copy their local workspaces into
+// sync storage. Safe to call multiple times — skips if sync already has data.
+async function migrateLocalToSync() {
+  if (!chrome.storage.sync) return;
+
+  const [localData, syncData] = await Promise.all([
+    new Promise((resolve) => chrome.storage.local.get(['workspaces', 'activeWorkspaceId'], resolve)),
+    new Promise((resolve) => chrome.storage.sync.get(['workspaces', 'activeWorkspaceId'], resolve))
+  ]);
+
+  // Don't overwrite if sync already has workspace data.
+  if (syncData.workspaces && Object.keys(syncData.workspaces).length > 0) return;
+
+  const payload = {};
+  if (localData.workspaces)      payload.workspaces      = localData.workspaces;
+  if (localData.activeWorkspaceId) payload.activeWorkspaceId = localData.activeWorkspaceId;
+
+  if (Object.keys(payload).length > 0) {
+    await new Promise((resolve, reject) => {
+      chrome.storage.sync.set(payload, () => {
+        if (chrome.runtime.lastError) reject(chrome.runtime.lastError);
+        else resolve();
+      });
+    });
+    console.log('storage: migrated local workspaces to sync storage');
+  }
+}
+
+/* ---------------- Custom errors ---------------- */
+
+class StorageQuotaError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'StorageQuotaError';
+  }
 }

@@ -45,12 +45,17 @@ let wsCreateFormVisible = false;
 
 function scheduleSave() {
   clearTimeout(_saveDebounceTimer);
-  // Capture expandedGroupIds and allOpenState at call time so the timeout
-  // always uses the latest values (both are module-level lets).
-  _saveDebounceTimer = setTimeout(
-    () => saveWorkspaceNow(expandedGroupIds, allOpenState),
-    500
-  );
+  _saveDebounceTimer = setTimeout(async () => {
+    try {
+      await saveWorkspaceNow(expandedGroupIds, allOpenState);
+    } catch (e) {
+      if (e.name === 'StorageQuotaError') {
+        showStatus('Storage quota exceeded. Your workspace could not be saved. Try removing some tabs or workspaces.');
+      } else {
+        console.error('scheduleSave: unexpected error', e);
+      }
+    }
+  }, 500);
 }
 
 /* ---------------- Error/status helpers ---------------- */
@@ -993,6 +998,12 @@ function wireUI() {
 
 document.addEventListener('DOMContentLoaded', async () => {
   wireUI();
+
+  try {
+    await initPermissions();
+  } catch (e) {
+    console.error('initPermissions failed:', e);
+  }
 
   try {
     await initWorkspaces();
