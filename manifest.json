@@ -15,6 +15,10 @@
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Tab Groups"
+  },
   "side_panel": {
     "default_path": "sidebar.html"
   },

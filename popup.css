@@ -1,0 +1,140 @@
+:root {
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+  color-scheme: light dark;
+  box-sizing: border-box;
+}
+
+* { box-sizing: inherit; margin: 0; padding: 0; }
+
+body {
+  width: 280px;
+  background: #ffffff;
+  color: #111111;
+  font-size: 13px;
+}
+
+#root { padding: 8px; }
+
+/* ---- Header ---- */
+
+.popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 6px 8px;
+}
+
+.popup-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: #6b6b6b;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+/* ---- Workspace list ---- */
+
+#workspaceList { display: flex; flex-direction: column; gap: 2px; }
+
+.ws-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.ws-item:hover { background: rgba(0,0,0,0.05); }
+.ws-item.active { background: rgba(0,0,0,0.04); cursor: default; }
+
+.ws-check {
+  width: 14px;
+  flex-shrink: 0;
+  font-size: 12px;
+  color: #6c63ff;
+  font-weight: 700;
+}
+
+.ws-name {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(0,0,0,0.82);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ws-item.active .ws-name { color: rgba(0,0,0,0.9); }
+
+.ws-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.ws-count {
+  font-size: 11px;
+  color: rgba(0,0,0,0.38);
+}
+
+.ws-groups {
+  font-size: 10px;
+  color: rgba(0,0,0,0.3);
+}
+
+/* ---- State messages ---- */
+
+.popup-state {
+  padding: 16px 10px;
+  text-align: center;
+  font-size: 12px;
+  color: rgba(0,0,0,0.45);
+}
+
+.popup-state.error { color: #d93025; }
+
+/* ---- Switching overlay ---- */
+
+.ws-item.switching {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.ws-item-switching-indicator {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  background: rgba(108,99,255,0.07);
+  color: #6c63ff;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* ---- Dark mode ---- */
+
+@media (prefers-color-scheme: dark) {
+  body { background: #1a1c1f; color: #e6e6e6; }
+
+  .popup-title { color: #9a9a9a; }
+
+  .ws-item:hover { background: rgba(255,255,255,0.07); }
+  .ws-item.active { background: rgba(255,255,255,0.05); }
+
+  .ws-name { color: rgba(255,255,255,0.85); }
+  .ws-item.active .ws-name { color: rgba(255,255,255,0.95); }
+  .ws-check { color: #a78bfa; }
+  .ws-count { color: rgba(255,255,255,0.35); }
+  .ws-groups { color: rgba(255,255,255,0.25); }
+
+  .popup-state { color: rgba(255,255,255,0.4); }
+  .popup-state.error { color: #ff6b6b; }
+
+  .ws-item-switching-indicator { background: rgba(167,139,250,0.1); color: #a78bfa; }
+}
