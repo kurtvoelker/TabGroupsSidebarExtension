@@ -282,6 +282,59 @@ function wireGroupDropTarget(groupEl, groupId) {
   tabsList.addEventListener('drop', onDrop);
 }
 
+/* ---------------- Startup restore ---------------- */
+
+// Returns true if every open tab is a new tab page or blank — i.e. Chrome
+// just launched fresh with no prior session restored.
+function _isFreshStart(tabs) {
+  if (tabs.length === 0) return true;
+  return tabs.every(t => {
+    const url = t.url || t.pendingUrl || '';
+    return !url ||
+      url === 'chrome://newtab/' ||
+      url === 'about:blank' ||
+      url === 'about:newtab';
+  });
+}
+
+// Called once during DOMContentLoaded. If Chrome opened with only blank/new-tab
+// pages AND the active workspace has saved content, restore those tabs
+// automatically so the user lands back where they left off.
+async function maybeRestoreOnStartup() {
+  try {
+    const activeWs = workspacesCache[activeWorkspaceIdCache];
+    if (!activeWs) return;
+
+    const hasSavedContent =
+      (activeWs.pinnedTabs   && activeWs.pinnedTabs.length   > 0) ||
+      (activeWs.ungroupedTabs && activeWs.ungroupedTabs.length > 0) ||
+      (activeWs.groups       && activeWs.groups.some(g => g.tabs && g.tabs.length > 0));
+
+    if (!hasSavedContent) return;
+
+    const liveTabs = await chrome.tabs.query({});
+    if (!_isFreshStart(liveTabs)) return; // Chrome already has real tabs — don't interfere
+
+    const currentWindow = await chrome.windows.getCurrent({ populate: false });
+    const windowId = currentWindow.id;
+
+    // Remember the initial blank tab so we can close it after restoring.
+    const blankTabId = liveTabs.length > 0 ? liveTabs[0].id : null;
+
+    await restoreWorkspaceTabs(activeWs, windowId);
+
+    // Remove the initial blank tab if other tabs were successfully opened.
+    if (blankTabId !== null) {
+      const remaining = await chrome.tabs.query({ windowId });
+      if (remaining.length > 1) {
+        try { await chrome.tabs.remove(blankTabId); } catch (e) { /* already gone */ }
+      }
+    }
+  } catch (e) {
+    console.error('maybeRestoreOnStartup failed:', e);
+  }
+}
+
 /* ---------------- Data load & render ---------------- */
 
 async function loadAndRender() {
@@ -1241,6 +1294,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   } catch (e) {
     console.error('initWorkspaces failed:', e);
   }
+
+  await maybeRestoreOnStartup();
 
   renderWorkspaceSwitcher();
   renderFooter();
