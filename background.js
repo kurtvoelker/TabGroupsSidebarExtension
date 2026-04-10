@@ -10,9 +10,22 @@ const COMMAND_OPEN = 'open_tab_groups_sidebar';
 // Chrome window from being captured as the workspace state when the user
 // switches workspaces without first opening the sidebar.
 
+// Fired when Chrome itself starts (full quit → relaunch).
 chrome.runtime.onStartup.addListener(() => {
   chrome.storage.local.remove('activeWorkspaceId');
   chrome.storage.sync.remove('activeWorkspaceId');
+});
+
+// Fired whenever any window closes. If no normal windows remain, the user has
+// closed all windows without quitting Chrome. The next new window will be blank,
+// so clear activeWorkspaceId now — same reasoning as onStartup above.
+chrome.windows.onRemoved.addListener(() => {
+  chrome.windows.getAll({ windowTypes: ['normal'] }, (remaining) => {
+    if (!remaining || remaining.length === 0) {
+      chrome.storage.local.remove('activeWorkspaceId');
+      chrome.storage.sync.remove('activeWorkspaceId');
+    }
+  });
 });
 
 /* ---------------- Keyboard shortcut ---------------- */
