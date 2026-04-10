@@ -9,9 +9,10 @@ const FEATURES = {
   CLOUD_SYNC:          'cloud_sync'
 };
 
-// LemonSqueezy store slug and product ID — update these when the store is live.
-const LS_API_URL  = 'https://api.lemonsqueezy.com/v1/licenses/validate';
-const LS_STORE_ID = null; // e.g. 12345  — fill in before launch
+// LemonSqueezy store — update these when the store is live.
+const LS_API_URL   = 'https://api.lemonsqueezy.com/v1/licenses/validate';
+const LS_STORE_ID  = null;  // e.g. 12345  — fill in before launch
+const LS_STORE_URL = null;  // e.g. 'https://yourstore.lemonsqueezy.com/buy/...' — fill in before launch
 
 // In-memory cache set by initPermissions(). Keeps canUseFeature() synchronous.
 let _licenseStatus = 'inactive'; // 'active' | 'inactive'
@@ -76,6 +77,11 @@ function getLicenseKeyDisplay() {
   const k = _licenseKey;
   if (k.length <= 8) return k;
   return k.slice(0, 4) + '-••••-••••-' + k.slice(-4);
+}
+
+// Returns the upgrade store URL, or null if not yet configured.
+function getStoreUrl() { // eslint-disable-line no-unused-vars
+  return LS_STORE_URL;
 }
 
 /* ---------------- Internal ---------------- */

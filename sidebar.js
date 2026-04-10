@@ -43,6 +43,9 @@ let wsGearMenuForId = null;  // id of the workspace whose gear menu is open
 let wsRenamingId = null;     // id of the workspace currently being renamed inline
 let wsCreateFormVisible = false;
 
+// Footer / license UI state
+let footerLicenseInputVisible = false;
+
 function scheduleSave() {
   clearTimeout(_saveDebounceTimer);
   _saveDebounceTimer = setTimeout(async () => {
@@ -938,6 +941,170 @@ async function doSwitchWorkspace(targetId) {
   }
 }
 
+/* ---------------- Footer / Pro panel ---------------- */
+
+function renderFooter() {
+  const footer = $('footer');
+  if (!footer) return;
+  footer.innerHTML = '';
+
+  const isPro = canUseFeature(FEATURES.CLOUD_SYNC);
+  const panel = document.createElement('div');
+  panel.className = 'pro-panel';
+
+  if (isPro) {
+    _renderProActiveFooter(panel);
+  } else if (footerLicenseInputVisible) {
+    _renderLicenseInputFooter(panel);
+  } else {
+    _renderPromoFooter(panel);
+  }
+
+  footer.appendChild(panel);
+}
+
+function _renderPromoFooter(panel) {
+  const header = document.createElement('div');
+  header.className = 'pro-panel-header';
+
+  const badge = document.createElement('span');
+  badge.className = 'pro-badge';
+  badge.textContent = 'PRO';
+
+  const title = document.createElement('span');
+  title.className = 'pro-panel-title';
+  title.textContent = 'Tab Groups Pro';
+
+  header.appendChild(badge);
+  header.appendChild(title);
+  panel.appendChild(header);
+
+  const sub = document.createElement('p');
+  sub.className = 'pro-panel-sub';
+  sub.textContent = 'Cloud sync across devices + unlimited workspaces.';
+  panel.appendChild(sub);
+
+  const buttons = document.createElement('div');
+  buttons.className = 'pro-panel-buttons';
+
+  const upgradeBtn = document.createElement('button');
+  upgradeBtn.className = 'pro-upgrade-btn';
+  upgradeBtn.textContent = 'Upgrade →';
+  upgradeBtn.addEventListener('click', () => {
+    const url = getStoreUrl();
+    if (url) {
+      chrome.tabs.create({ url });
+    } else {
+      // Store URL not configured yet — do nothing in dev
+      console.log('renderFooter: store URL not configured');
+    }
+  });
+
+  const licenseBtn = document.createElement('button');
+  licenseBtn.className = 'pro-license-btn';
+  licenseBtn.textContent = 'Enter License';
+  licenseBtn.addEventListener('click', () => {
+    footerLicenseInputVisible = true;
+    renderFooter();
+  });
+
+  buttons.appendChild(upgradeBtn);
+  buttons.appendChild(licenseBtn);
+  panel.appendChild(buttons);
+}
+
+function _renderLicenseInputFooter(panel) {
+  const row = document.createElement('div');
+  row.className = 'pro-key-row';
+
+  const input = document.createElement('input');
+  input.className = 'pro-key-input';
+  input.placeholder = 'Paste license key…';
+  input.type = 'text';
+  input.spellcheck = false;
+
+  const confirmBtn = document.createElement('button');
+  confirmBtn.className = 'pro-key-confirm';
+  confirmBtn.textContent = '✓';
+
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'pro-key-cancel';
+  cancelBtn.textContent = '✕';
+
+  row.appendChild(input);
+  row.appendChild(confirmBtn);
+  row.appendChild(cancelBtn);
+  panel.appendChild(row);
+
+  const hint = document.createElement('p');
+  hint.className = 'pro-key-hint';
+  hint.textContent = 'Paste the key from your purchase confirmation email.';
+  panel.appendChild(hint);
+
+  const submit = async () => {
+    const key = input.value.trim();
+    if (!key) { input.focus(); return; }
+
+    confirmBtn.disabled = true;
+    hint.textContent = 'Validating…';
+    hint.classList.remove('error');
+
+    const result = await activateLicense(key);
+    if (result.ok) {
+      footerLicenseInputVisible = false;
+      // Migrate local workspaces into sync storage now that Pro is active.
+      try { await migrateLocalToSync(); } catch (e) { console.warn('migrateLocalToSync failed', e); }
+      renderFooter();
+    } else {
+      confirmBtn.disabled = false;
+      hint.textContent = result.error || 'Invalid key. Please try again.';
+      hint.classList.add('error');
+      input.focus();
+    }
+  };
+
+  const cancel = () => {
+    footerLicenseInputVisible = false;
+    renderFooter();
+  };
+
+  confirmBtn.addEventListener('click', submit);
+  cancelBtn.addEventListener('click', cancel);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') submit();
+    if (e.key === 'Escape') cancel();
+  });
+
+  requestAnimationFrame(() => input.focus());
+}
+
+function _renderProActiveFooter(panel) {
+  const row = document.createElement('div');
+  row.className = 'pro-active-row';
+
+  const badge = document.createElement('span');
+  badge.className = 'pro-badge';
+  badge.textContent = 'PRO';
+
+  const keyDisplay = document.createElement('span');
+  keyDisplay.className = 'pro-active-key';
+  keyDisplay.textContent = getLicenseKeyDisplay() || 'Active';
+
+  const deactivateBtn = document.createElement('button');
+  deactivateBtn.className = 'pro-deactivate-btn';
+  deactivateBtn.textContent = 'Deactivate';
+  deactivateBtn.addEventListener('click', async () => {
+    if (!confirm('Deactivate your Pro license on this device?')) return;
+    await deactivateLicense();
+    renderFooter();
+  });
+
+  row.appendChild(badge);
+  row.appendChild(keyDisplay);
+  row.appendChild(deactivateBtn);
+  panel.appendChild(row);
+}
+
 /* ---------------- UI wiring ---------------- */
 
 function wireUI() {
@@ -1013,6 +1180,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   renderWorkspaceSwitcher();
+  renderFooter();
   loadAndRender();
 
   try {
