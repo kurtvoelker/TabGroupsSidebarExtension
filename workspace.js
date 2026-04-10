@@ -11,12 +11,24 @@
 async function captureCurrentState(expandedGroupIds = new Set(), allOpen = false) {
   const allTabs = await chrome.tabs.query({});
 
+  // Identify the active tab in the current (sidebar's) window so we can
+  // restore focus to it when this workspace is next loaded.
+  let activeTabId = null;
+  try {
+    const win = await chrome.windows.getCurrent({ populate: false });
+    const [activeTab] = await chrome.tabs.query({ active: true, windowId: win.id });
+    if (activeTab) activeTabId = activeTab.id;
+  } catch (e) {
+    console.warn('captureCurrentState: could not determine active tab', e);
+  }
+
   const pinnedTabs = [];
   const tabsByGroupId = new Map(); // groupId (number) → [{url, title}]
   const ungroupedTabs = [];
 
   for (const tab of allTabs) {
     const entry = { url: tab.url || '', title: tab.title || tab.url || '' };
+    if (tab.id === activeTabId) entry.active = true;
 
     if (tab.pinned) {
       pinnedTabs.push(entry);
@@ -84,13 +96,29 @@ async function saveWorkspaceNow(expandedGroupIds, allOpenState) {
 async function restoreWorkspaceTabs(workspaceData, windowId) {
   const { pinnedTabs = [], groups = [], ungroupedTabs = [] } = workspaceData;
 
+  // All tabs are created with active:false. We track which tab should receive
+  // focus (the one saved with entry.active === true) and activate it at the end.
+  // Falls back to the first non-pinned tab for old snapshots without the flag.
+  let activeTabId    = null; // the tab to focus after restore
+  let firstNonPinned = null; // fallback if no active flag found
+
+  const openTab = async (tabData, opts = {}) => {
+    try {
+      const tab = await chrome.tabs.create({ url: tabData.url, windowId, active: false, ...opts });
+      if (!opts.pinned) {
+        if (!firstNonPinned) firstNonPinned = tab.id;
+        if (tabData.active)  activeTabId   = tab.id;
+      }
+      return tab;
+    } catch (e) {
+      console.warn('restoreWorkspaceTabs: could not open tab', tabData.url, e);
+      return null;
+    }
+  };
+
   // Pinned tabs first — they anchor to the left of the tab strip.
   for (const tabData of pinnedTabs) {
-    try {
-      await chrome.tabs.create({ url: tabData.url, windowId, pinned: true });
-    } catch (e) {
-      console.warn('restoreWorkspaceTabs: could not open pinned tab', tabData.url, e);
-    }
+    await openTab(tabData, { pinned: true });
   }
 
   // Named tab groups, in saved order.
@@ -99,12 +127,8 @@ async function restoreWorkspaceTabs(workspaceData, windowId) {
 
     const tabIds = [];
     for (const tabData of group.tabs) {
-      try {
-        const tab = await chrome.tabs.create({ url: tabData.url, windowId });
-        tabIds.push(tab.id);
-      } catch (e) {
-        console.warn('restoreWorkspaceTabs: could not open tab', tabData.url, e);
-      }
+      const tab = await openTab(tabData);
+      if (tab) tabIds.push(tab.id);
     }
 
     if (tabIds.length === 0) continue;
@@ -123,11 +147,13 @@ async function restoreWorkspaceTabs(workspaceData, windowId) {
 
   // Ungrouped tabs last.
   for (const tabData of ungroupedTabs) {
-    try {
-      await chrome.tabs.create({ url: tabData.url, windowId });
-    } catch (e) {
-      console.warn('restoreWorkspaceTabs: could not open ungrouped tab', tabData.url, e);
-    }
+    await openTab(tabData);
+  }
+
+  // Activate the previously focused tab (or the first non-pinned tab as fallback).
+  const toActivate = activeTabId || firstNonPinned;
+  if (toActivate) {
+    try { await chrome.tabs.update(toActivate, { active: true }); } catch (e) {}
   }
 }
 
