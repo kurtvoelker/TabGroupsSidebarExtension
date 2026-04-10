@@ -76,12 +76,49 @@ function renderList(workspaces, activeId) {
   }
 }
 
+/* ---------------- Promo footer ---------------- */
+
+function renderPromo(workspaceCount, isPro) {
+  const footer = document.getElementById('popupFooter');
+  if (!footer) return;
+
+  if (isPro) {
+    footer.innerHTML = '';
+    return;
+  }
+
+  const used  = Math.min(workspaceCount, FREE_WORKSPACE_LIMIT);
+  const limit = FREE_WORKSPACE_LIMIT;
+
+  const sep = document.createElement('div');
+  sep.className = 'popup-sep';
+
+  const row = document.createElement('div');
+  row.className = 'popup-promo';
+
+  const text = document.createElement('span');
+  text.className = 'popup-promo-text';
+  text.textContent = `Using ${used} of ${limit} free workspaces`;
+
+  const btn = document.createElement('button');
+  btn.className = 'popup-pro-btn';
+  btn.textContent = 'Get Pro';
+  const url = getStoreUrl();
+  if (url) btn.addEventListener('click', () => { chrome.tabs.create({ url }); window.close(); });
+  else btn.disabled = true;
+
+  row.appendChild(text);
+  row.appendChild(btn);
+  footer.appendChild(sep);
+  footer.appendChild(row);
+}
+
 /* ---------------- Switch ---------------- */
 
 function handleSwitch(targetId, targetName) {
   const list = document.getElementById('workspaceList');
 
-  // Dim all items and show a switching indicator at the top.
+  // Dim all items and show a switching indicator.
   list.querySelectorAll('.ws-item').forEach(el => el.classList.add('switching'));
 
   const indicator = document.createElement('div');
@@ -89,28 +126,48 @@ function handleSwitch(targetId, targetName) {
   indicator.textContent = `Opening "${targetName}"…`;
   list.insertBefore(indicator, list.firstChild);
 
-  // Delegate to the background service worker. The popup will be killed by
-  // Chrome the moment any tab operation changes focus, so we cannot run
-  // switchWorkspace here directly. Fire and close immediately.
-  chrome.runtime.sendMessage({ action: 'switchWorkspace', targetId });
+  // Signal the background service worker via storage instead of sendMessage.
+  // Storage writes are handled by the browser process and complete even if the
+  // popup closes immediately — unlike sendMessage which can be lost when the
+  // service worker is waking up for the first time.
+  chrome.storage.local.set({ _requestSwitchToWorkspace: targetId });
   window.close();
 }
 
 /* ---------------- Init ---------------- */
 
 document.addEventListener('DOMContentLoaded', async () => {
-  // Open sidebar button
-  document.getElementById('openSidebarBtn')?.addEventListener('click', async () => {
+  // Sidebar toggle button — open if closed, close if open
+  const sidebarBtn = document.getElementById('openSidebarBtn');
+  if (sidebarBtn) {
+    // Check current sidebar state from session storage
+    let sidebarOpen = false;
     try {
-      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-      if (tab && tab.windowId) {
-        await chrome.sidePanel.open({ windowId: tab.windowId });
+      const result = await chrome.storage.session.get('_sidebarOpen');
+      sidebarOpen = !!result._sidebarOpen;
+    } catch (e) { /* session storage unavailable */ }
+
+    // Update button label to reflect state
+    const label = sidebarBtn.querySelector('.sidebar-btn-label');
+    if (label) label.textContent = sidebarOpen ? 'Close' : 'Sidebar';
+
+    sidebarBtn.addEventListener('click', async () => {
+      try {
+        if (sidebarOpen) {
+          // Ask sidebar to close itself
+          await chrome.runtime.sendMessage({ action: 'closeSidebar' });
+        } else {
+          const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+          if (tab && tab.windowId) {
+            await chrome.sidePanel.open({ windowId: tab.windowId });
+          }
+        }
+      } catch (e) {
+        console.error('popup: sidebar toggle failed', e);
       }
-    } catch (e) {
-      console.error('popup: could not open sidebar', e);
-    }
-    window.close();
-  });
+      window.close();
+    });
+  }
 
   // Load workspace list
   const list = document.getElementById('workspaceList');
@@ -123,6 +180,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       getActiveWorkspaceId()
     ]);
     renderList(workspaces, activeId);
+    renderPromo(Object.keys(workspaces).length, canUseFeature(FEATURES.CLOUD_SYNC));
   } catch (e) {
     console.error('popup: init failed', e);
     list.innerHTML = '<div class="popup-state error">Could not load workspaces.</div>';

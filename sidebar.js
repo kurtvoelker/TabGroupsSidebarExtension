@@ -1279,6 +1279,19 @@ function wireUI() {
 
 /* ---------------- Init ---------------- */
 
+// Tell the popup whether the sidebar is open, and listen for close requests.
+try {
+  chrome.storage.session.set({ _sidebarOpen: true });
+  window.addEventListener('pagehide', () => {
+    chrome.storage.session.set({ _sidebarOpen: false });
+  });
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg && msg.action === 'closeSidebar') window.close();
+  });
+} catch (e) {
+  console.warn('sidebar: session tracking unavailable', e);
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
   wireUI();
 

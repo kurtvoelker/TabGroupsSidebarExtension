@@ -1,6 +1,4 @@
 // background.js — service worker
-// Imports shared logic so it can perform workspace switches on behalf of the
-// popup (which gets killed by Chrome as soon as it loses focus).
 importScripts('permissions.js', 'storage.js', 'workspace.js');
 
 const COMMAND_OPEN = 'open_tab_groups_sidebar';
@@ -22,19 +20,23 @@ chrome.commands.onCommand.addListener((command) => {
   });
 });
 
-/* ---------------- Message handler ---------------- */
+/* ---------------- Workspace switch (triggered by popup) ---------------- */
+//
+// The popup writes { _requestSwitchToWorkspace: targetId } to local storage
+// instead of using sendMessage. Storage writes are committed by the browser
+// process and survive popup teardown, so this fires reliably even on the first
+// click when the service worker was previously sleeping.
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.action === 'switchWorkspace') {
-    // Run entirely in the service worker — the popup will be dead by the time
-    // the first tab operation fires, so this must not depend on popup context.
-    initPermissions()
-      .then(() => switchWorkspace(message.targetId, new Set(), false))
-      .then(() => sendResponse({ ok: true }))
-      .catch((e) => {
-        console.error('background: switchWorkspace failed', e);
-        sendResponse({ ok: false, error: e.message });
-      });
-    return true; // Keep the message channel open for the async response
-  }
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local' || !changes._requestSwitchToWorkspace) return;
+
+  const targetId = changes._requestSwitchToWorkspace.newValue;
+  if (!targetId) return; // fired by our own remove() call below — ignore
+
+  // Clear immediately so a re-open doesn't replay the switch.
+  chrome.storage.local.remove('_requestSwitchToWorkspace');
+
+  initPermissions()
+    .then(() => switchWorkspace(targetId, new Set(), false))
+    .catch((e) => console.error('background: switchWorkspace failed', e));
 });
