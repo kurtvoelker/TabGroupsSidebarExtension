@@ -78,7 +78,7 @@ function renderList(workspaces, activeId) {
 
 /* ---------------- Switch ---------------- */
 
-async function handleSwitch(targetId, targetName) {
+function handleSwitch(targetId, targetName) {
   const list = document.getElementById('workspaceList');
 
   // Dim all items and show a switching indicator at the top.
@@ -89,14 +89,11 @@ async function handleSwitch(targetId, targetName) {
   indicator.textContent = `Opening "${targetName}"…`;
   list.insertBefore(indicator, list.firstChild);
 
-  try {
-    // Pass empty accordion state — sidebar will re-render from live tabs on switch.
-    await switchWorkspace(targetId, new Set(), false);
-    window.close();
-  } catch (e) {
-    console.error('popup: switchWorkspace failed', e);
-    list.innerHTML = '<div class="popup-state error">Switch failed — try again.</div>';
-  }
+  // Delegate to the background service worker. The popup will be killed by
+  // Chrome the moment any tab operation changes focus, so we cannot run
+  // switchWorkspace here directly. Fire and close immediately.
+  chrome.runtime.sendMessage({ action: 'switchWorkspace', targetId });
+  window.close();
 }
 
 /* ---------------- Init ---------------- */
