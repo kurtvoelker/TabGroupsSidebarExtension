@@ -153,18 +153,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (label) label.textContent = sidebarOpen ? 'Close' : 'Sidebar';
 
     sidebarBtn.addEventListener('click', async () => {
-      try {
-        if (sidebarOpen) {
-          // Ask sidebar to close itself
-          await chrome.runtime.sendMessage({ action: 'closeSidebar' });
-        } else {
+      if (sidebarOpen) {
+        // Fire-and-forget: the sidebar closes itself on receipt, which kills the
+        // message port before a response arrives — awaiting would always throw.
+        chrome.runtime.sendMessage({ action: 'closeSidebar' }).catch(() => {});
+      } else {
+        try {
           const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
           if (tab && tab.windowId) {
             await chrome.sidePanel.open({ windowId: tab.windowId });
           }
+        } catch (e) {
+          console.error('popup: could not open sidebar', e);
         }
-      } catch (e) {
-        console.error('popup: sidebar toggle failed', e);
       }
       window.close();
     });
