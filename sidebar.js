@@ -37,7 +37,7 @@ let _saveDebounceTimer = null;
 
 // Workspace UI state
 let workspacesCache = {};
-let activeWorkspaceIdCache = 'ws_default';
+let activeWorkspaceIdCache = null;
 let wsDropdownOpen = false;
 let wsGearMenuForId = null;  // id of the workspace whose gear menu is open
 let wsRenamingId = null;     // id of the workspace currently being renamed inline
@@ -339,6 +339,17 @@ async function maybeRestoreOnStartup() {
 
 async function loadAndRender() {
   clearStatus();
+
+  // No workspace loaded yet — show a prompt instead of live tabs.
+  if (!activeWorkspaceIdCache) {
+    $('pinnedSection')?.classList.add('hidden');
+    const container = $('groupsContainer');
+    if (container) {
+      container.innerHTML = '<div class="no-ws-prompt">Select a workspace above to get started.</div>';
+    }
+    return;
+  }
+
   try {
     let tabs = [];
     try {
@@ -765,7 +776,7 @@ function renderWorkspaceSwitcher() {
 
   const nameSpan = document.createElement('span');
   nameSpan.className = 'ws-name';
-  nameSpan.textContent = activeWs ? activeWs.name : 'Workspace';
+  nameSpan.textContent = activeWs ? activeWs.name : 'Select workspace';
 
   const chevron = document.createElement('span');
   chevron.className = 'ws-chevron' + (wsDropdownOpen ? ' open' : '');

@@ -113,6 +113,13 @@ body {
 
 .section { margin-bottom:12px; }
 
+.no-ws-prompt {
+  padding: 32px 12px;
+  text-align: center;
+  font-size: 12px;
+  color: rgba(0,0,0,0.38);
+}
+
 .pinned-bar {
   display:flex;
   gap:8px;
@@ -727,6 +734,7 @@ body {
   .sort-menu > button.active { color: rgba(255,255,255,0.95); }
 
   .section-label { color: #9a9a9a; }
+  .no-ws-prompt { color: rgba(255,255,255,0.28); }
 
   .pinned-item { background:#111216; border:1px solid rgba(255,255,255,0.04); }
   .group { border: none; box-shadow: none; }

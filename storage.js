@@ -63,9 +63,9 @@ async function initWorkspaces() {
     };
   }
 
-  if (!data.activeWorkspaceId) {
-    updates.activeWorkspaceId = WS_DEFAULT_ID;
-  }
+  // Do NOT auto-set activeWorkspaceId here. On fresh Chrome starts, no workspace
+  // should be considered active until the user explicitly selects one.
+  // (The onStartup handler in background.js clears it on every launch.)
 
   if (Object.keys(updates).length > 0) {
     await storageSet(updates);
@@ -85,7 +85,7 @@ async function getWorkspace(id) {
 }
 
 async function getActiveWorkspaceId() {
-  const { activeWorkspaceId = WS_DEFAULT_ID } = await storageGet(['activeWorkspaceId']);
+  const { activeWorkspaceId = null } = await storageGet(['activeWorkspaceId']);
   return activeWorkspaceId;
 }
 

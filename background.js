@@ -3,6 +3,18 @@ importScripts('permissions.js', 'storage.js', 'workspace.js');
 
 const COMMAND_OPEN = 'open_tab_groups_sidebar';
 
+/* ---------------- Fresh-start cleanup ---------------- */
+//
+// On every Chrome startup, clear the stored activeWorkspaceId so no workspace
+// is "active" until the user explicitly loads one. This prevents a blank
+// Chrome window from being captured as the workspace state when the user
+// switches workspaces without first opening the sidebar.
+
+chrome.runtime.onStartup.addListener(() => {
+  chrome.storage.local.remove('activeWorkspaceId');
+  chrome.storage.sync.remove('activeWorkspaceId');
+});
+
 /* ---------------- Keyboard shortcut ---------------- */
 
 chrome.commands.onCommand.addListener((command) => {

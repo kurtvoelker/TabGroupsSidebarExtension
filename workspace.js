@@ -82,6 +82,7 @@ async function saveWorkspaceNow(expandedGroupIds, allOpenState) {
   if (_switchInProgress) return;
   try {
     const activeId = await getActiveWorkspaceId();
+    if (!activeId) return; // no workspace loaded yet — nothing to save
     const state = await captureCurrentState(expandedGroupIds, allOpenState);
     await saveWorkspace(activeId, state);
   } catch (e) {
@@ -176,9 +177,14 @@ async function switchWorkspace(targetId, expandedGroupIds, allOpenState) {
     const currentWindow = await chrome.windows.getLastFocused({ populate: false, windowTypes: ['normal'] });
     const windowId = currentWindow.id;
 
-    // Save current state BEFORE touching any tabs.
-    const currentState = await captureCurrentState(expandedGroupIds, allOpenState);
-    await saveWorkspace(activeId, currentState);
+    // Save current state BEFORE touching any tabs — but only if a workspace is
+    // actually active. If activeId is null (fresh Chrome start, user hasn't
+    // loaded any workspace yet) there is nothing worth preserving, and saving
+    // would overwrite the workspace's stored tabs with a blank window.
+    if (activeId !== null) {
+      const currentState = await captureCurrentState(expandedGroupIds, allOpenState);
+      await saveWorkspace(activeId, currentState);
+    }
 
     // Load the target workspace into memory BEFORE closing anything.
     // If this fails, we haven't destroyed the user's current session yet.
