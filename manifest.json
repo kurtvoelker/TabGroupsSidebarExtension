@@ -9,6 +9,9 @@
     "storage",
     "sidePanel"
   ],
+  "host_permissions": [
+    "https://api.lemonsqueezy.com/"
+  ],
 "icons": {
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",

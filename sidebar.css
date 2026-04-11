@@ -332,6 +332,8 @@ body {
 }
 .pro-upgrade-btn:hover { opacity: 0.88; }
 .pro-upgrade-btn:active { opacity: 0.78; }
+.pro-upgrade-btn--lifetime { background: transparent; color: #6c63ff; border: 1px solid #6c63ff; }
+.pro-upgrade-btn--lifetime:hover { background: rgba(108,99,255,0.08); opacity: 1; }
 
 .pro-license-btn {
   flex: 1;
@@ -423,6 +425,7 @@ body {
   cursor: pointer;
 }
 .pro-deactivate-btn:hover { background: rgba(0,0,0,0.05); color: rgba(0,0,0,0.7); }
+
 .hidden { display:none !important; }
 
 /* ---- Workspace bar ---- */

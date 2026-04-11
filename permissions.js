@@ -11,30 +11,35 @@ const FEATURES = {
 
 const FREE_WORKSPACE_LIMIT = 3; // eslint-disable-line no-unused-vars
 
-// LemonSqueezy store — update these when the store is live.
-const LS_API_URL   = 'https://api.lemonsqueezy.com/v1/licenses/validate';
-const LS_STORE_ID  = null;  // e.g. 12345  — fill in before launch
-const LS_STORE_URL = null;  // e.g. 'https://yourstore.lemonsqueezy.com/buy/...' — fill in before launch
+const LS_STORE_ID       = 341342;
+const LS_URL_ANNUAL     = 'https://tabgroups.lemonsqueezy.com/checkout/buy/14f28053-a3a8-4080-b2a8-04f70fca920d';
+const LS_URL_LIFETIME   = 'https://tabgroups.lemonsqueezy.com/checkout/buy/e276db60-d7d3-4c42-aff0-1f7c32ca8f44';
+
+const LS_ACTIVATE_URL   = 'https://api.lemonsqueezy.com/v1/licenses/activate';
+const LS_VALIDATE_URL   = 'https://api.lemonsqueezy.com/v1/licenses/validate';
+const LS_DEACTIVATE_URL = 'https://api.lemonsqueezy.com/v1/licenses/deactivate';
 
 // In-memory cache set by initPermissions(). Keeps canUseFeature() synchronous.
 let _licenseStatus = 'inactive'; // 'active' | 'inactive'
 let _licenseKey    = null;
+let _instanceId    = null; // LemonSqueezy activation instance ID
 
 /* ---------------- Public API ---------------- */
 
 // Must be awaited once during DOMContentLoaded before any canUseFeature() call.
 async function initPermissions() {
   try {
-    const data = await _localGet(['licenseKey', 'licenseStatus', 'licenseValidatedAt']);
-    _licenseKey    = data.licenseKey    || null;
-    _licenseStatus = data.licenseStatus || 'inactive';
+    const data = await _localGet(['licenseKey', 'licenseStatus', 'licenseValidatedAt', 'licenseInstanceId']);
+    _licenseKey    = data.licenseKey        || null;
+    _licenseStatus = data.licenseStatus     || 'inactive';
+    _instanceId    = data.licenseInstanceId || null;
 
     // Re-validate against LemonSqueezy if the key is present but the cached
     // validation is older than 24 hours (catches refunds / chargebacks).
     const validatedAt = data.licenseValidatedAt || 0;
     const stale = (Date.now() - validatedAt) > 24 * 60 * 60 * 1000;
     if (_licenseKey && stale) {
-      await _revalidate(_licenseKey);
+      await _revalidate(_licenseKey, _instanceId);
     }
   } catch (e) {
     console.warn('initPermissions: could not read license data', e);
@@ -43,53 +48,60 @@ async function initPermissions() {
 
 // Synchronous — safe to call anywhere after initPermissions() has resolved.
 function canUseFeature(feature) { // eslint-disable-line no-unused-vars
-  if (_licenseStatus === 'active') return true;
-
-  // Features available on the free tier:
-  // (none currently — all gated behind Pro)
-  return false;
+  return _licenseStatus === 'active';
 }
 
 // Activate a new license key. Returns { ok: true } or { ok: false, error: string }.
-async function activateLicense(key) {
-  const result = await _validateWithLemonSqueezy(key);
+async function activateLicense(key) { // eslint-disable-line no-unused-vars
+  const result = await _activateWithLemonSqueezy(key.trim());
   if (result.ok) {
     _licenseKey    = key.trim();
     _licenseStatus = 'active';
+    _instanceId    = result.instanceId || null;
     await _localSet({
       licenseKey:          _licenseKey,
       licenseStatus:       'active',
-      licenseValidatedAt:  Date.now()
+      licenseValidatedAt:  Date.now(),
+      licenseInstanceId:   _instanceId
     });
   }
   return result;
 }
 
-// Deactivate (e.g. user wants to move key to another device).
-async function deactivateLicense() {
+// Deactivate — frees the activation slot on LemonSqueezy, then clears local state.
+async function deactivateLicense() { // eslint-disable-line no-unused-vars
+  if (_licenseKey && _instanceId && LS_STORE_ID) {
+    try {
+      await fetch(LS_DEACTIVATE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ license_key: _licenseKey, instance_id: _instanceId })
+      });
+    } catch (e) {
+      console.warn('permissions: deactivation API call failed (continuing anyway)', e);
+    }
+  }
   _licenseKey    = null;
   _licenseStatus = 'inactive';
-  await _localSet({ licenseKey: null, licenseStatus: 'inactive', licenseValidatedAt: 0 });
+  _instanceId    = null;
+  await _localSet({ licenseKey: null, licenseStatus: 'inactive', licenseValidatedAt: 0, licenseInstanceId: null });
 }
 
-// Returns the stored license key (masked for display), or null.
-function getLicenseKeyDisplay() {
+// Returns the stored license key masked for display, or null.
+function getLicenseKeyDisplay() { // eslint-disable-line no-unused-vars
   if (!_licenseKey) return null;
-  // Show first 4 and last 4 chars: XXXX-••••-••••-XXXX
   const k = _licenseKey;
   if (k.length <= 8) return k;
   return k.slice(0, 4) + '-••••-••••-' + k.slice(-4);
 }
 
-// Returns the upgrade store URL, or null if not yet configured.
-function getStoreUrl() { // eslint-disable-line no-unused-vars
-  return LS_STORE_URL;
-}
+function getAnnualUrl()   { return LS_URL_ANNUAL;   } // eslint-disable-line no-unused-vars
+function getLifetimeUrl() { return LS_URL_LIFETIME; } // eslint-disable-line no-unused-vars
 
 /* ---------------- Internal ---------------- */
 
-async function _revalidate(key) {
-  const result = await _validateWithLemonSqueezy(key);
+async function _revalidate(key, instanceId) {
+  const result = await _validateWithLemonSqueezy(key, instanceId);
   _licenseStatus = result.ok ? 'active' : 'inactive';
   await _localSet({
     licenseStatus:      _licenseStatus,
@@ -97,33 +109,56 @@ async function _revalidate(key) {
   });
 }
 
-// Calls the LemonSqueezy license validation API.
-// Returns { ok: true } or { ok: false, error: string }.
-async function _validateWithLemonSqueezy(key) {
-  // Guard: if store ID isn't configured yet, treat any non-empty key as active
-  // so development/testing works without a live LemonSqueezy account.
+// First-time activation — creates an instance so LemonSqueezy can track seats.
+async function _activateWithLemonSqueezy(key) {
   if (!LS_STORE_ID) {
-    console.warn('permissions: LS_STORE_ID not set — accepting key without API validation (dev mode)');
-    return key && key.trim().length > 0
-      ? { ok: true }
-      : { ok: false, error: 'No key provided.' };
+    console.warn('permissions: LS_STORE_ID not set — dev mode, accepting any key');
+    return key.length > 0 ? { ok: true, instanceId: null } : { ok: false, error: 'No key provided.' };
   }
 
   try {
-    const res = await fetch(LS_API_URL, {
+    const res = await fetch(LS_ACTIVATE_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify({ license_key: key.trim() })
+      body: JSON.stringify({ license_key: key, instance_name: 'Chrome Extension' })
+    });
+    const json = await res.json();
+
+    if (!res.ok || !json.activated) {
+      return { ok: false, error: json.error || 'License key could not be activated.' };
+    }
+    return { ok: true, instanceId: json.instance?.id || null };
+  } catch (e) {
+    console.error('permissions: LemonSqueezy activate failed', e);
+    return { ok: false, error: 'Could not reach the license server. Check your connection.' };
+  }
+}
+
+// Periodic re-validation — checks the key is still active (catches refunds).
+async function _validateWithLemonSqueezy(key, instanceId) {
+  if (!LS_STORE_ID) {
+    return key && key.length > 0 ? { ok: true } : { ok: false, error: 'No key.' };
+  }
+
+  try {
+    const body = { license_key: key };
+    if (instanceId) body.instance_id = instanceId;
+
+    const res = await fetch(LS_VALIDATE_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify(body)
     });
     const json = await res.json();
 
     if (!res.ok || !json.valid) {
-      return { ok: false, error: json.error || 'License key is not valid.' };
+      return { ok: false, error: json.error || 'License key is no longer valid.' };
     }
     return { ok: true };
   } catch (e) {
-    console.error('permissions: LemonSqueezy API call failed', e);
-    return { ok: false, error: 'Could not reach the license server. Check your connection.' };
+    // Network failure — preserve cached status rather than revoking access.
+    console.warn('permissions: LemonSqueezy validate failed, keeping cached status', e);
+    return { ok: true };
   }
 }
 

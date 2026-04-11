@@ -103,9 +103,7 @@ function renderPromo(workspaceCount, isPro) {
   const btn = document.createElement('button');
   btn.className = 'popup-pro-btn';
   btn.textContent = 'Get Pro';
-  const url = getStoreUrl();
-  if (url) btn.addEventListener('click', () => { chrome.tabs.create({ url }); window.close(); });
-  else btn.disabled = true;
+  btn.addEventListener('click', () => { chrome.tabs.create({ url: getAnnualUrl() }); window.close(); });
 
   row.appendChild(text);
   row.appendChild(btn);

@@ -949,8 +949,7 @@ function renderWorkspaceSwitcher() {
       upgradeBtn.className = 'ws-create-upgrade-btn';
       upgradeBtn.textContent = 'Get Pro for unlimited →';
       upgradeBtn.addEventListener('click', () => {
-        const url = getStoreUrl();
-        if (url) chrome.tabs.create({ url });
+        chrome.tabs.create({ url: getAnnualUrl() });
         wsCreateFormVisible = false;
         renderWorkspaceSwitcher();
       });
@@ -1015,8 +1014,7 @@ function renderWorkspaceSwitcher() {
         proLink.textContent = 'Get Pro';
         proLink.addEventListener('click', (e) => {
           e.stopPropagation();
-          const url = getStoreUrl();
-          if (url) chrome.tabs.create({ url });
+          chrome.tabs.create({ url: getAnnualUrl() });
         });
 
         usage.appendChild(usageText);
@@ -1114,18 +1112,15 @@ function _renderPromoFooter(panel) {
   const buttons = document.createElement('div');
   buttons.className = 'pro-panel-buttons';
 
-  const upgradeBtn = document.createElement('button');
-  upgradeBtn.className = 'pro-upgrade-btn';
-  upgradeBtn.textContent = 'Upgrade →';
-  upgradeBtn.addEventListener('click', () => {
-    const url = getStoreUrl();
-    if (url) {
-      chrome.tabs.create({ url });
-    } else {
-      // Store URL not configured yet — do nothing in dev
-      console.log('renderFooter: store URL not configured');
-    }
-  });
+  const annualBtn = document.createElement('button');
+  annualBtn.className = 'pro-upgrade-btn';
+  annualBtn.textContent = 'Annual';
+  annualBtn.addEventListener('click', () => chrome.tabs.create({ url: getAnnualUrl() }));
+
+  const lifetimeBtn = document.createElement('button');
+  lifetimeBtn.className = 'pro-upgrade-btn pro-upgrade-btn--lifetime';
+  lifetimeBtn.textContent = 'Lifetime';
+  lifetimeBtn.addEventListener('click', () => chrome.tabs.create({ url: getLifetimeUrl() }));
 
   const licenseBtn = document.createElement('button');
   licenseBtn.className = 'pro-license-btn';
@@ -1135,7 +1130,8 @@ function _renderPromoFooter(panel) {
     renderFooter();
   });
 
-  buttons.appendChild(upgradeBtn);
+  buttons.appendChild(annualBtn);
+  buttons.appendChild(lifetimeBtn);
   buttons.appendChild(licenseBtn);
   panel.appendChild(buttons);
 }
@@ -1179,7 +1175,6 @@ function _renderLicenseInputFooter(panel) {
     const result = await activateLicense(key);
     if (result.ok) {
       footerLicenseInputVisible = false;
-      // Migrate local workspaces into sync storage now that Pro is active.
       try { await migrateLocalToSync(); } catch (e) { console.warn('migrateLocalToSync failed', e); }
       renderFooter();
     } else {
