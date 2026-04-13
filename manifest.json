@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Tab Groups Sidebar",
+  "name": "Tab Group Workspaces",
   "version": "0.1.0",
   "description": "Sidebar to list and manage Chrome Tab Groups (pinned tabs first, color-coded, searchable tabs).",
   "permissions": [
