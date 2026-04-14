@@ -16,8 +16,11 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     await initWorkspaces(); // creates 'My First Workspace' with empty state
 
     // Capture only the focused window — other open windows are left alone.
-    const focusedWindow = await chrome.windows.getLastFocused({ populate: false, windowTypes: ['normal'] });
-    const snapshot = await captureCurrentState(new Set(), false, focusedWindow.id);
+    // Use the active tab's windowId rather than getLastFocused, which can be
+    // unreliable in a service worker context during onInstalled.
+    const [activeTab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    const focusedWindowId = activeTab?.windowId ?? null;
+    const snapshot = await captureCurrentState(new Set(), false, focusedWindowId);
 
     const hasContent =
       snapshot.pinnedTabs.length > 0 ||
