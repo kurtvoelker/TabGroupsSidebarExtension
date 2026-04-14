@@ -3,20 +3,21 @@
 
 /* ---------------- Capture ---------------- */
 
-// Reads all open tabs and tab groups across all windows and returns a
+// Reads open tabs and tab groups for a specific window and returns a
 // workspace-shaped snapshot. Does NOT store favIconUrl — see architecture notes.
 //
 // expandedGroupIds: the Set<number> from sidebar.js tracking open accordions.
 // allOpen: true when "expand all" is active, meaning every group is expanded.
-async function captureCurrentState(expandedGroupIds = new Set(), allOpen = false) {
-  const allTabs = await chrome.tabs.query({});
+// windowId: the browser window to capture (required — workspaces map 1:1 to windows).
+async function captureCurrentState(expandedGroupIds = new Set(), allOpen = false, windowId = null) {
+  const query = windowId ? { windowId } : {};
+  const allTabs = await chrome.tabs.query(query);
 
-  // Identify the active tab in the current (sidebar's) window so we can
-  // restore focus to it when this workspace is next loaded.
+  // Identify the active tab in the window so we can restore focus when next loaded.
   let activeTabId = null;
   try {
-    // lastFocusedWindow works from any extension context (sidebar, popup, background).
-    const [activeTab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    const activeQuery = windowId ? { active: true, windowId } : { active: true, lastFocusedWindow: true };
+    const [activeTab] = await chrome.tabs.query(activeQuery);
     if (activeTab) activeTabId = activeTab.id;
   } catch (e) {
     console.warn('captureCurrentState: could not determine active tab', e);
@@ -83,7 +84,8 @@ async function saveWorkspaceNow(expandedGroupIds, allOpenState) {
   try {
     const activeId = await getActiveWorkspaceId();
     if (!activeId) return; // no workspace loaded yet — nothing to save
-    const state = await captureCurrentState(expandedGroupIds, allOpenState);
+    const win = await chrome.windows.getLastFocused({ populate: false, windowTypes: ['normal'] });
+    const state = await captureCurrentState(expandedGroupIds, allOpenState, win.id);
     await saveWorkspace(activeId, state);
   } catch (e) {
     console.error('saveWorkspaceNow failed:', e);
@@ -182,7 +184,7 @@ async function switchWorkspace(targetId, expandedGroupIds, allOpenState) {
     // loaded any workspace yet) there is nothing worth preserving, and saving
     // would overwrite the workspace's stored tabs with a blank window.
     if (activeId !== null) {
-      const currentState = await captureCurrentState(expandedGroupIds, allOpenState);
+      const currentState = await captureCurrentState(expandedGroupIds, allOpenState, windowId);
       await saveWorkspace(activeId, currentState);
     }
 
@@ -191,13 +193,12 @@ async function switchWorkspace(targetId, expandedGroupIds, allOpenState) {
     const targetWorkspace = await getWorkspace(targetId);
     if (!targetWorkspace) throw new Error(`Workspace "${targetId}" not found.`);
 
-    // Open a placeholder tab so the window survives while we close everything.
+    // Open a placeholder tab so the window survives while we close its tabs.
     const placeholder = await chrome.tabs.create({ windowId });
 
-    // Close every tab except the placeholder across all windows.
-    // Other windows will close automatically once their last tab is removed.
-    const allTabs = await chrome.tabs.query({});
-    const toClose = allTabs.map(t => t.id).filter(id => id !== placeholder.id);
+    // Close only tabs in the current window — other windows are untouched.
+    const windowTabs = await chrome.tabs.query({ windowId });
+    const toClose = windowTabs.map(t => t.id).filter(id => id !== placeholder.id);
     if (toClose.length > 0) {
       try {
         await chrome.tabs.remove(toClose);
