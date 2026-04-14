@@ -15,8 +15,9 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     await initPermissions();
     await initWorkspaces(); // creates 'My First Workspace' with empty state
 
-    // Capture the current session.
-    const snapshot = await captureCurrentState(new Set(), false);
+    // Capture only the focused window — other open windows are left alone.
+    const focusedWindow = await chrome.windows.getLastFocused({ populate: false, windowTypes: ['normal'] });
+    const snapshot = await captureCurrentState(new Set(), false, focusedWindow.id);
 
     const hasContent =
       snapshot.pinnedTabs.length > 0 ||
