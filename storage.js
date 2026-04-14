@@ -53,7 +53,7 @@ async function initWorkspaces() {
     updates.workspaces = {
       [WS_DEFAULT_ID]: {
         id: WS_DEFAULT_ID,
-        name: 'Workspace 1',
+        name: 'My First Workspace',
         createdAt: now,
         updatedAt: now,
         pinnedTabs: [],

@@ -3,6 +3,37 @@ importScripts('permissions.js', 'storage.js', 'workspace.js');
 
 const COMMAND_OPEN = 'open_tab_groups_sidebar';
 
+/* ---------------- First install ---------------- */
+//
+// Capture whatever tabs the user already has open and save them as their first
+// workspace so nothing is lost when they first interact with the extension.
+
+chrome.runtime.onInstalled.addListener(async (details) => {
+  if (details.reason !== 'install') return;
+
+  try {
+    await initPermissions();
+    await initWorkspaces(); // creates 'My First Workspace' with empty state
+
+    // Capture the current session.
+    const snapshot = await captureCurrentState(new Set(), false);
+
+    const hasContent =
+      snapshot.pinnedTabs.length > 0 ||
+      snapshot.ungroupedTabs.length > 0 ||
+      snapshot.groups.some(g => g.tabs && g.tabs.length > 0);
+
+    if (hasContent) {
+      // Save the captured tabs into the default workspace and mark it active
+      // so the sidebar opens straight into the user's existing session.
+      await saveWorkspace('ws_default', snapshot);
+      await setActiveWorkspaceId('ws_default');
+    }
+  } catch (e) {
+    console.error('background: onInstalled capture failed', e);
+  }
+});
+
 /* ---------------- Fresh-start cleanup ---------------- */
 //
 // On every Chrome startup, clear the stored activeWorkspaceId so no workspace
