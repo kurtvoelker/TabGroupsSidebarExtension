@@ -15,26 +15,12 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     await initPermissions();
     await initWorkspaces(); // creates 'My First Workspace' with empty state
 
-    // Capture only the focused window — other open windows are left alone.
-    // Use the active tab's windowId rather than getLastFocused, which can be
-    // unreliable in a service worker context during onInstalled.
-    const [activeTab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    const focusedWindowId = activeTab?.windowId ?? null;
-    const snapshot = await captureCurrentState(new Set(), false, focusedWindowId);
-
-    const hasContent =
-      snapshot.pinnedTabs.length > 0 ||
-      snapshot.ungroupedTabs.length > 0 ||
-      snapshot.groups.some(g => g.tabs && g.tabs.length > 0);
-
-    if (hasContent) {
-      // Save the captured tabs into the default workspace and mark it active
-      // so the sidebar opens straight into the user's existing session.
-      await saveWorkspace('ws_default', snapshot);
-      await setActiveWorkspaceId('ws_default');
-    }
+    // Signal the sidebar to capture the current window on first open.
+    // We do it there rather than here because the service worker context
+    // during onInstalled has no reliable way to identify the focused window.
+    await chrome.storage.session.set({ _pendingInstallCapture: true });
   } catch (e) {
-    console.error('background: onInstalled capture failed', e);
+    console.error('background: onInstalled failed', e);
   }
 });
 

@@ -300,6 +300,35 @@ function _isFreshStart(tabs) {
 // Called once during DOMContentLoaded. If Chrome opened with only blank/new-tab
 // pages AND the active workspace has saved content, restore those tabs
 // automatically so the user lands back where they left off.
+// On first install, capture the current window's tabs into 'My First Workspace'.
+// The background onInstalled handler sets a session flag; we act on it here
+// because the sidebar reliably knows its own window via getCurrent().
+async function maybeCaptureFreshInstall() {
+  try {
+    const { _pendingInstallCapture } = await chrome.storage.session.get('_pendingInstallCapture');
+    if (!_pendingInstallCapture) return;
+
+    // Clear the flag immediately so a sidebar re-open doesn't repeat the capture.
+    await chrome.storage.session.remove('_pendingInstallCapture');
+
+    const currentWindow = await chrome.windows.getCurrent({ populate: false });
+    const snapshot = await captureCurrentState(new Set(), false, currentWindow.id);
+
+    const hasContent =
+      snapshot.pinnedTabs.length > 0 ||
+      snapshot.ungroupedTabs.length > 0 ||
+      snapshot.groups.some(g => g.tabs && g.tabs.length > 0);
+
+    if (hasContent) {
+      await saveWorkspace('ws_default', snapshot);
+      await setActiveWorkspaceId('ws_default');
+      await refreshWorkspacesCache();
+    }
+  } catch (e) {
+    console.error('maybeCaptureFreshInstall failed:', e);
+  }
+}
+
 async function maybeRestoreOnStartup() {
   try {
     const activeWs = workspacesCache[activeWorkspaceIdCache];
@@ -1318,6 +1347,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   await maybeRestoreOnStartup();
+  await maybeCaptureFreshInstall();
 
   renderWorkspaceSwitcher();
   renderFooter();
