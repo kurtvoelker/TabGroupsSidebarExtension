@@ -83,6 +83,24 @@ function showStatus(msg) {
   el.textContent = msg;
 }
 
+function showSuccessStatus(msg, durationMs = 2000) {
+  let el = document.getElementById('statusMessage');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'statusMessage';
+    el.style.padding = '8px';
+    el.style.fontSize = '12px';
+    el.style.borderRadius = '6px';
+    el.style.marginBottom = '8px';
+    const root = document.getElementById('root') || document.body;
+    root.insertBefore(el, root.firstChild);
+  }
+  el.style.color = '#1a73e8';
+  el.style.background = 'rgba(232,240,254,0.95)';
+  el.textContent = msg;
+  setTimeout(() => { if (el.isConnected) el.remove(); }, durationMs);
+}
+
 function clearStatus() {
   const el = document.getElementById('statusMessage');
   if (el) el.remove();
@@ -964,10 +982,20 @@ function renderWorkspaceSwitcher() {
       const submitCreate = async () => {
         const name = input.value.trim();
         if (!name) { input.focus(); return; }
-        await createWorkspace(name);
-        await refreshWorkspacesCache();
+        const newWorkspace = await createWorkspace(name);
         wsCreateFormVisible = false;
-        renderWorkspaceSwitcher();
+
+        if (!activeWorkspaceIdCache) {
+          // Window is unassigned — immediately adopt the new workspace so the
+          // current tabs are saved into it and it becomes active. Same as if the
+          // user had clicked the new workspace manually right after creating it.
+          await doSwitchWorkspace(newWorkspace.id);
+          showSuccessStatus(`✓ Current tabs saved as "${newWorkspace.name}"`);
+        } else {
+          // Window already has a workspace — just add to the list, don't switch.
+          await refreshWorkspacesCache();
+          renderWorkspaceSwitcher();
+        }
       };
       const cancelCreate = () => { wsCreateFormVisible = false; renderWorkspaceSwitcher(); };
 
@@ -1254,7 +1282,11 @@ function wireUI() {
       toggleAllAccordions(!allOpenState);
     });
 
-    refreshBtn?.addEventListener('click', loadAndRender);
+    refreshBtn?.addEventListener('click', async () => {
+      await refreshWorkspacesCache();
+      renderWorkspaceSwitcher();
+      await loadAndRender();
+    });
     $('search')?.addEventListener('input', applySearchFilter);
 
     syncOpenCloseButtonLabel();
@@ -1326,6 +1358,29 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (chrome && chrome.tabGroups && chrome.tabGroups.onChanged) {
       chrome.tabGroups.onChanged.addListener(() => { loadAndRender(); scheduleSave(); });
     }
+
+    // React to external storage changes so the sidebar stays in sync without
+    // requiring a manual refresh.
+    chrome.storage.onChanged.addListener(async (changes, area) => {
+      // Per-window assignment changed (another window focused/stole this workspace).
+      if (area === 'session' && changes._windowWorkspaceMap) {
+        const newMap = changes._windowWorkspaceMap.newValue || {};
+        const oldMap = changes._windowWorkspaceMap.oldValue || {};
+        const newAssignment = newMap[sidebarWindowId] || null;
+        const oldAssignment = oldMap[sidebarWindowId] || null;
+        if (newAssignment !== oldAssignment) {
+          await refreshWorkspacesCache();
+          renderWorkspaceSwitcher();
+        }
+      }
+
+      // Workspace list changed (workspace created, renamed, or deleted in any window).
+      const wsArea = canUseFeature(FEATURES.CLOUD_SYNC) ? 'sync' : 'local';
+      if (area === wsArea && changes.workspaces) {
+        await refreshWorkspacesCache();
+        renderWorkspaceSwitcher();
+      }
+    });
   } catch (attachErr) {
     console.warn('Could not attach listeners:', attachErr);
   }

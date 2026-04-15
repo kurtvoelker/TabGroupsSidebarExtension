@@ -4,6 +4,10 @@
 // The window this popup belongs to — resolved during DOMContentLoaded.
 let focusedWindowId = null;
 
+// The workspace currently assigned to focusedWindowId (null = unassigned).
+// Used to detect the adopt case so we can show confirmation feedback.
+let currentWindowWorkspaceId = null;
+
 /* ---------------- Helpers ---------------- */
 
 function countTabs(ws) {
@@ -117,23 +121,24 @@ function renderPromo(workspaceCount, isPro) {
 /* ---------------- Switch ---------------- */
 
 function handleSwitch(targetId, targetName) {
-  const list = document.getElementById('workspaceList');
-
-  // Dim all items and show a switching indicator.
-  list.querySelectorAll('.ws-item').forEach(el => el.classList.add('switching'));
-
-  const indicator = document.createElement('div');
-  indicator.className = 'ws-item-switching-indicator';
-  indicator.textContent = `Opening "${targetName}"…`;
-  list.insertBefore(indicator, list.firstChild);
-
   // Signal the background service worker via storage instead of sendMessage.
   // Storage writes are handled by the browser process and complete even if the
   // popup closes immediately — unlike sendMessage which can be lost when the
   // service worker is waking up for the first time.
-  // Include focusedWindowId so the background switches the right window.
   chrome.storage.local.set({ _requestSwitchToWorkspace: { targetId, windowId: focusedWindowId } });
-  window.close();
+
+  if (currentWindowWorkspaceId === null) {
+    // Adopt case: this window is unassigned, so its current tabs will be saved
+    // as the workspace — nothing visually changes. Show a brief confirmation so
+    // the user knows the click did something before the popup closes.
+    const list = document.getElementById('workspaceList');
+    list.innerHTML = `<div class="popup-adopt-confirm">✓ Current tabs saved as<br><strong>${targetName}</strong></div>`;
+    setTimeout(() => window.close(), 1600);
+  } else {
+    // Normal switch or focus-window: the tab changes (or window focus change)
+    // are their own feedback — close immediately.
+    window.close();
+  }
 }
 
 /* ---------------- Init ---------------- */
@@ -191,6 +196,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       getAllWorkspaces(),
       focusedWindowId ? getWindowWorkspaceId(focusedWindowId) : Promise.resolve(null)
     ]);
+    currentWindowWorkspaceId = activeId;
     renderList(workspaces, activeId);
     renderPromo(Object.keys(workspaces).length, canUseFeature(FEATURES.CLOUD_SYNC));
   } catch (e) {

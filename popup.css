@@ -113,6 +113,20 @@ body {
 
 .popup-state.error { color: #d93025; }
 
+.popup-adopt-confirm {
+  padding: 20px 10px;
+  text-align: center;
+  font-size: 12px;
+  color: #1a73e8;
+  line-height: 1.5;
+}
+
+.popup-adopt-confirm strong {
+  display: block;
+  font-size: 13px;
+  margin-top: 2px;
+}
+
 /* ---- Switching overlay ---- */
 
 .ws-item.switching {
