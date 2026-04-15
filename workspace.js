@@ -219,9 +219,28 @@ async function switchWorkspace(targetId, expandedGroupIds, allOpenState, callerW
     if (!targetWorkspace) throw new Error(`Workspace "${targetId}" not found.`);
 
     if (activeId !== null) {
-      // Normal case — save this window's current state back to its active workspace.
+      // This window already has a workspace. Open a new window for the target
+      // rather than replacing this window's tabs — each workspace lives in its
+      // own window, so switching navigates between windows, not content.
       const currentState = await captureCurrentState(expandedGroupIds, allOpenState, windowId);
       await saveWorkspace(activeId, currentState);
+
+      const newWin = await chrome.windows.create({ focused: true });
+      const newWindowId = newWin.id;
+      const initialTabId = newWin.tabs && newWin.tabs[0] ? newWin.tabs[0].id : null;
+
+      await restoreWorkspaceTabs(targetWorkspace, newWindowId);
+
+      // Remove the blank tab Chrome opened the new window with.
+      if (initialTabId) {
+        const remaining = await chrome.tabs.query({ windowId: newWindowId });
+        if (remaining.length > 1) {
+          try { await chrome.tabs.remove(initialTabId); } catch (e) { /* already gone */ }
+        }
+      }
+
+      await setWindowWorkspaceId(newWindowId, targetId);
+      return;
 
     } else {
       // No workspace assigned to this window yet.
