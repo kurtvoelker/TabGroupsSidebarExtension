@@ -14,11 +14,6 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   try {
     await initPermissions();
     await initWorkspaces(); // creates 'My First Workspace' with empty state
-
-    // Signal the sidebar to capture the current window on first open.
-    // We do it there rather than here because the service worker context
-    // during onInstalled has no reliable way to identify the focused window.
-    await chrome.storage.session.set({ _pendingInstallCapture: true });
   } catch (e) {
     console.error('background: onInstalled failed', e);
   }
@@ -37,10 +32,12 @@ chrome.runtime.onStartup.addListener(() => {
   chrome.storage.sync.remove('activeWorkspaceId');
 });
 
-// Fired whenever any window closes. If no normal windows remain, the user has
-// closed all windows without quitting Chrome. The next new window will be blank,
-// so clear activeWorkspaceId now — same reasoning as onStartup above.
-chrome.windows.onRemoved.addListener(() => {
+// Fired whenever any window closes.
+chrome.windows.onRemoved.addListener((windowId) => {
+  // Remove this window's workspace assignment from the session map.
+  setWindowWorkspaceId(windowId, null).catch(() => {});
+
+  // If no normal windows remain, also clear the legacy global activeWorkspaceId.
   chrome.windows.getAll({ windowTypes: ['normal'] }, (remaining) => {
     if (!remaining || remaining.length === 0) {
       chrome.storage.local.remove('activeWorkspaceId');
@@ -76,13 +73,19 @@ chrome.commands.onCommand.addListener((command) => {
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local' || !changes._requestSwitchToWorkspace) return;
 
-  const targetId = changes._requestSwitchToWorkspace.newValue;
-  if (!targetId) return; // fired by our own remove() call below — ignore
+  const newValue = changes._requestSwitchToWorkspace.newValue;
+  if (!newValue) return; // fired by our own remove() call below — ignore
 
   // Clear immediately so a re-open doesn't replay the switch.
   chrome.storage.local.remove('_requestSwitchToWorkspace');
 
+  // Support both old format (string) and new format ({ targetId, windowId }).
+  const targetId   = typeof newValue === 'string' ? newValue : newValue.targetId;
+  const callerWindowId = typeof newValue === 'object' ? newValue.windowId : null;
+
+  if (!targetId) return;
+
   initPermissions()
-    .then(() => switchWorkspace(targetId, new Set(), false))
+    .then(() => switchWorkspace(targetId, new Set(), false, callerWindowId))
     .catch((e) => console.error('background: switchWorkspace failed', e));
 });

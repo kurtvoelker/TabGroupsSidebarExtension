@@ -1,6 +1,9 @@
 // popup.js — workspace switcher popup
 // Depends on: permissions.js, storage.js, workspace.js (loaded first via popup.html)
 
+// The window this popup belongs to — resolved during DOMContentLoaded.
+let focusedWindowId = null;
+
 /* ---------------- Helpers ---------------- */
 
 function countTabs(ws) {
@@ -128,22 +131,32 @@ function handleSwitch(targetId, targetName) {
   // Storage writes are handled by the browser process and complete even if the
   // popup closes immediately — unlike sendMessage which can be lost when the
   // service worker is waking up for the first time.
-  chrome.storage.local.set({ _requestSwitchToWorkspace: targetId });
+  // Include focusedWindowId so the background switches the right window.
+  chrome.storage.local.set({ _requestSwitchToWorkspace: { targetId, windowId: focusedWindowId } });
   window.close();
 }
 
 /* ---------------- Init ---------------- */
 
 document.addEventListener('DOMContentLoaded', async () => {
+  // Resolve the window this popup belongs to. Must happen before any workspace
+  // operations or sidebar ping — every per-window lookup depends on this.
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    if (tab) focusedWindowId = tab.windowId;
+  } catch (e) {
+    console.warn('popup: could not resolve focused window', e);
+  }
+
   // Sidebar toggle button — open if closed, close if open
   const sidebarBtn = document.getElementById('openSidebarBtn');
   if (sidebarBtn) {
-    // Ping the sidebar to check if it's currently open.
-    // If it responds, it's alive. If it throws, no sidebar page is running.
+    // Ping the sidebar to check if it's currently open IN THIS WINDOW.
+    // The response includes windowId so we can confirm it's the right sidebar.
     let sidebarOpen = false;
     try {
       const response = await chrome.runtime.sendMessage({ action: 'pingSidebar' });
-      sidebarOpen = !!(response && response.alive);
+      sidebarOpen = !!(response && response.alive && response.windowId === focusedWindowId);
     } catch (e) { /* no response means sidebar is not open */ }
 
     // Update button label to reflect state
@@ -157,9 +170,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         chrome.runtime.sendMessage({ action: 'closeSidebar' }).catch(() => {});
       } else {
         try {
-          const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-          if (tab && tab.windowId) {
-            await chrome.sidePanel.open({ windowId: tab.windowId });
+          if (focusedWindowId) {
+            await chrome.sidePanel.open({ windowId: focusedWindowId });
           }
         } catch (e) {
           console.error('popup: could not open sidebar', e);
@@ -177,7 +189,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     await initPermissions();
     const [workspaces, activeId] = await Promise.all([
       getAllWorkspaces(),
-      getActiveWorkspaceId()
+      focusedWindowId ? getWindowWorkspaceId(focusedWindowId) : Promise.resolve(null)
     ]);
     renderList(workspaces, activeId);
     renderPromo(Object.keys(workspaces).length, canUseFeature(FEATURES.CLOUD_SYNC));

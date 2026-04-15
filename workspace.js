@@ -79,13 +79,15 @@ let _switchInProgress = false;
 // Captures current Chrome state and persists it to the active workspace.
 // expandedGroupIds and allOpenState are passed in from sidebar.js so this
 // file doesn't need direct access to sidebar's module-level variables.
-async function saveWorkspaceNow(expandedGroupIds, allOpenState) {
+// windowId: pass the sidebar's own window ID so saves are always scoped correctly.
+async function saveWorkspaceNow(expandedGroupIds, allOpenState, windowId = null) {
   if (_switchInProgress) return;
   try {
-    const activeId = await getActiveWorkspaceId();
-    if (!activeId) return; // no workspace loaded yet — nothing to save
-    const win = await chrome.windows.getLastFocused({ populate: false, windowTypes: ['normal'] });
-    const state = await captureCurrentState(expandedGroupIds, allOpenState, win.id);
+    const wid = windowId ||
+      (await chrome.windows.getLastFocused({ populate: false, windowTypes: ['normal'] })).id;
+    const activeId = await getWindowWorkspaceId(wid);
+    if (!activeId) return; // no workspace loaded in this window yet — nothing to save
+    const state = await captureCurrentState(expandedGroupIds, allOpenState, wid);
     await saveWorkspace(activeId, state);
   } catch (e) {
     console.error('saveWorkspaceNow failed:', e);
@@ -162,30 +164,45 @@ async function restoreWorkspaceTabs(workspaceData, windowId) {
 
 /* ---------------- Switch ---------------- */
 
-async function switchWorkspace(targetId, expandedGroupIds, allOpenState) {
+// callerWindowId: the window performing the switch. If null, falls back to
+// getLastFocused (background service worker context where getCurrent() is unavailable).
+async function switchWorkspace(targetId, expandedGroupIds, allOpenState, callerWindowId = null) {
   if (_switchInProgress) {
     console.warn('switchWorkspace: already in progress, ignoring.');
     return;
   }
 
-  const activeId = await getActiveWorkspaceId();
+  // Resolve which window we're operating on.
+  let windowId = callerWindowId;
+  if (!windowId) {
+    const currentWindow = await chrome.windows.getLastFocused({ populate: false, windowTypes: ['normal'] });
+    windowId = currentWindow.id;
+  }
+
+  // Per-window check: is this workspace already loaded in this window?
+  const activeId = await getWindowWorkspaceId(windowId);
   if (targetId === activeId) return;
 
   _switchInProgress = true;
   try {
-    // getLastFocused with windowTypes:'normal' works from any extension context
-    // (sidebar, popup, background). getCurrent() would return the popup window
-    // itself when called from a popup, which is wrong.
-    const currentWindow = await chrome.windows.getLastFocused({ populate: false, windowTypes: ['normal'] });
-    const windowId = currentWindow.id;
-
-    // Save current state BEFORE touching any tabs — but only if a workspace is
-    // actually active. If activeId is null (fresh Chrome start, user hasn't
-    // loaded any workspace yet) there is nothing worth preserving, and saving
-    // would overwrite the workspace's stored tabs with a blank window.
+    // Save current state BEFORE touching any tabs.
     if (activeId !== null) {
+      // Normal case — save this window's state back to its active workspace.
       const currentState = await captureCurrentState(expandedGroupIds, allOpenState, windowId);
       await saveWorkspace(activeId, currentState);
+    } else {
+      // No workspace assigned to this window yet. This happens on fresh Chrome
+      // starts (blank window, nothing to save) AND on first install (real tabs
+      // exist and should be preserved). Use content to distinguish:
+      // if the window has real tabs, save them into 'ws_default' so they aren't lost.
+      const currentState = await captureCurrentState(new Set(), false, windowId);
+      const hasContent =
+        currentState.pinnedTabs.length > 0 ||
+        currentState.ungroupedTabs.length > 0 ||
+        currentState.groups.some(g => g.tabs && g.tabs.length > 0);
+      if (hasContent) {
+        await saveWorkspace('ws_default', currentState);
+      }
     }
 
     // Load the target workspace into memory BEFORE closing anything.
@@ -196,7 +213,7 @@ async function switchWorkspace(targetId, expandedGroupIds, allOpenState) {
     // Open a placeholder tab so the window survives while we close its tabs.
     const placeholder = await chrome.tabs.create({ windowId });
 
-    // Close only tabs in the current window — other windows are untouched.
+    // Close only tabs in this window — other windows are untouched.
     const windowTabs = await chrome.tabs.query({ windowId });
     const toClose = windowTabs.map(t => t.id).filter(id => id !== placeholder.id);
     if (toClose.length > 0) {
@@ -208,7 +225,7 @@ async function switchWorkspace(targetId, expandedGroupIds, allOpenState) {
       }
     }
 
-    // Restore the target workspace into our window.
+    // Restore the target workspace into this window.
     await restoreWorkspaceTabs(targetWorkspace, windowId);
 
     // Remove the placeholder if the workspace opened any other tabs.
@@ -217,8 +234,8 @@ async function switchWorkspace(targetId, expandedGroupIds, allOpenState) {
       try { await chrome.tabs.remove(placeholder.id); } catch (e) { /* already gone */ }
     }
 
-    // Commit — only update activeWorkspaceId after everything succeeds.
-    await setActiveWorkspaceId(targetId);
+    // Commit — record which workspace this window is now displaying.
+    await setWindowWorkspaceId(windowId, targetId);
 
   } finally {
     // Always release the lock, even if something threw.

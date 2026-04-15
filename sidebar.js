@@ -35,6 +35,9 @@ let expandedGroupIds = new Set();
 let draggedTabData = null;
 let _saveDebounceTimer = null;
 
+// Per-window identity — set during init, used for all workspace operations.
+let sidebarWindowId = null;
+
 // Workspace UI state
 let workspacesCache = {};
 let activeWorkspaceIdCache = null;
@@ -50,7 +53,7 @@ function scheduleSave() {
   clearTimeout(_saveDebounceTimer);
   _saveDebounceTimer = setTimeout(async () => {
     try {
-      await saveWorkspaceNow(expandedGroupIds, allOpenState);
+      await saveWorkspaceNow(expandedGroupIds, allOpenState, sidebarWindowId);
     } catch (e) {
       if (e.name === 'StorageQuotaError') {
         showStatus('Storage quota exceeded. Your workspace could not be saved. Try removing some tabs or workspaces.');
@@ -300,35 +303,6 @@ function _isFreshStart(tabs) {
 // Called once during DOMContentLoaded. If Chrome opened with only blank/new-tab
 // pages AND the active workspace has saved content, restore those tabs
 // automatically so the user lands back where they left off.
-// On first install, capture the current window's tabs into 'My First Workspace'.
-// The background onInstalled handler sets a session flag; we act on it here
-// because the sidebar reliably knows its own window via getCurrent().
-async function maybeCaptureFreshInstall() {
-  try {
-    const { _pendingInstallCapture } = await chrome.storage.session.get('_pendingInstallCapture');
-    if (!_pendingInstallCapture) return;
-
-    // Clear the flag immediately so a sidebar re-open doesn't repeat the capture.
-    await chrome.storage.session.remove('_pendingInstallCapture');
-
-    const currentWindow = await chrome.windows.getCurrent({ populate: false });
-    const snapshot = await captureCurrentState(new Set(), false, currentWindow.id);
-
-    const hasContent =
-      snapshot.pinnedTabs.length > 0 ||
-      snapshot.ungroupedTabs.length > 0 ||
-      snapshot.groups.some(g => g.tabs && g.tabs.length > 0);
-
-    if (hasContent) {
-      await saveWorkspace('ws_default', snapshot);
-      await setActiveWorkspaceId('ws_default');
-      await refreshWorkspacesCache();
-    }
-  } catch (e) {
-    console.error('maybeCaptureFreshInstall failed:', e);
-  }
-}
-
 async function maybeRestoreOnStartup() {
   try {
     const activeWs = workspacesCache[activeWorkspaceIdCache];
@@ -341,11 +315,10 @@ async function maybeRestoreOnStartup() {
 
     if (!hasSavedContent) return;
 
-    const liveTabs = await chrome.tabs.query({});
-    if (!_isFreshStart(liveTabs)) return; // Chrome already has real tabs — don't interfere
-
     const currentWindow = await chrome.windows.getCurrent({ populate: false });
     const windowId = currentWindow.id;
+    const liveTabs = await chrome.tabs.query({ windowId });
+    if (!_isFreshStart(liveTabs)) return; // window already has real tabs — don't interfere
 
     // Remember the initial blank tab so we can close it after restoring.
     const blankTabId = liveTabs.length > 0 ? liveTabs[0].id : null;
@@ -368,31 +341,11 @@ async function maybeRestoreOnStartup() {
 
 async function loadAndRender() {
   clearStatus();
-
-  // No workspace loaded yet — show a prompt instead of live tabs.
-  if (!activeWorkspaceIdCache) {
-    $('pinnedSection')?.classList.add('hidden');
-    const container = $('groupsContainer');
-    if (container) {
-      container.innerHTML = '<div class="no-ws-prompt">Select a workspace above to get started.</div>';
-    }
-    return;
-  }
-
   try {
-    let tabs = [];
-    try {
-      tabs = await chrome.tabs.query({});
-    } catch (apiErr) {
-      console.error('chrome.tabs.query failed:', apiErr);
-      try {
-        tabs = await chrome.tabs.query({});
-      } catch (err2) {
-        showStatus('Unable to query tabs API. Confirm "tabs" permission.');
-        return;
-      }
-    }
-
+    // Scope to the current window — the sidebar is a side panel attached to one
+    // window and should only show that window's tabs.
+    const currentWindow = await chrome.windows.getCurrent({ populate: false });
+    const tabs = await chrome.tabs.query({ windowId: currentWindow.id });
     await renderFromTabs(tabs || []);
   } catch (err) {
     console.error('loadAndRender fatal:', err);
@@ -766,7 +719,7 @@ function toggleAllAccordions(open) {
 
 async function refreshWorkspacesCache() {
   workspacesCache = await getAllWorkspaces();
-  activeWorkspaceIdCache = await getActiveWorkspaceId();
+  activeWorkspaceIdCache = sidebarWindowId ? await getWindowWorkspaceId(sidebarWindowId) : null;
 }
 
 function renderWorkspaceSwitcher() {
@@ -805,7 +758,7 @@ function renderWorkspaceSwitcher() {
 
   const nameSpan = document.createElement('span');
   nameSpan.className = 'ws-name';
-  nameSpan.textContent = activeWs ? activeWs.name : 'Select workspace';
+  nameSpan.textContent = activeWs ? activeWs.name : 'No workspace';
 
   const chevron = document.createElement('span');
   chevron.className = 'ws-chevron' + (wsDropdownOpen ? ' open' : '');
@@ -1085,7 +1038,7 @@ document.addEventListener('click', (e) => {
 
 async function doSwitchWorkspace(targetId) {
   try {
-    await switchWorkspace(targetId, expandedGroupIds, allOpenState);
+    await switchWorkspace(targetId, expandedGroupIds, allOpenState, sidebarWindowId);
     await refreshWorkspacesCache();
     renderWorkspaceSwitcher();
     await loadAndRender();
@@ -1319,7 +1272,8 @@ function wireUI() {
 try {
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg && msg.action === 'pingSidebar') {
-      sendResponse({ alive: true });
+      // Include windowId so popup can confirm this sidebar belongs to its window.
+      sendResponse({ alive: true, windowId: sidebarWindowId });
       return true;
     }
     if (msg && msg.action === 'closeSidebar') {
@@ -1339,6 +1293,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.error('initPermissions failed:', e);
   }
 
+  // Resolve this sidebar's window ID before any workspace operations.
+  try {
+    const currentWindow = await chrome.windows.getCurrent({ populate: false });
+    sidebarWindowId = currentWindow.id;
+  } catch (e) {
+    console.error('sidebar: could not resolve window ID', e);
+  }
+
   try {
     await initWorkspaces();
     await refreshWorkspacesCache();
@@ -1347,7 +1309,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   await maybeRestoreOnStartup();
-  await maybeCaptureFreshInstall();
 
   renderWorkspaceSwitcher();
   renderFooter();

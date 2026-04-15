@@ -95,6 +95,26 @@ async function setActiveWorkspaceId(id) {
   await storageSet({ activeWorkspaceId: id });
 }
 
+/* ---------------- Per-window workspace map (session storage) ---------------- */
+
+// Maps windowId → workspaceId in chrome.storage.session.
+// Session storage is cleared automatically when Chrome restarts — no cleanup needed.
+
+async function getWindowWorkspaceId(windowId) {
+  const { _windowWorkspaceMap = {} } = await chrome.storage.session.get('_windowWorkspaceMap');
+  return _windowWorkspaceMap[windowId] ?? null;
+}
+
+async function setWindowWorkspaceId(windowId, wsId) {
+  const { _windowWorkspaceMap = {} } = await chrome.storage.session.get('_windowWorkspaceMap');
+  if (wsId === null) {
+    delete _windowWorkspaceMap[windowId];
+  } else {
+    _windowWorkspaceMap[windowId] = wsId;
+  }
+  await chrome.storage.session.set({ _windowWorkspaceMap });
+}
+
 // Merges workspaceData into the stored record for `id`.
 async function saveWorkspace(id, workspaceData) {
   let workspaces;
