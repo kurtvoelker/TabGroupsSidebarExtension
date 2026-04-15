@@ -30,9 +30,19 @@
       flex: 1;
     }
 
+    .headline {
+      display: flex;
+      flex-direction: row;
+      align-items: flex-start;
+      gap: 20px;
+    }
+
     .logo {
       width: 72px;
       height: 72px;
+      flex-shrink: 0;
+      /* Nudge down slightly so the icon's visual top aligns with the cap-height of the text */
+      margin-top: 4px;
     }
 
     h1 {
@@ -52,34 +62,30 @@
 
     #openBtn {
       display: inline-flex;
+      flex-direction: column;
       align-items: center;
-      gap: 12px;
+      gap: 14px;
       background: #1a73e8;
       color: #fff;
       border: none;
-      border-radius: 12px;
-      padding: 18px 28px;
-      font-size: 16px;
+      border-radius: 16px;
+      padding: 28px 36px;
+      font-size: 17px;
       font-weight: 500;
       cursor: pointer;
-      line-height: 1.4;
-      text-align: left;
+      text-align: center;
       transition: background 0.15s, transform 0.1s;
-      box-shadow: 0 2px 12px rgba(26,115,232,0.3);
+      box-shadow: 0 2px 16px rgba(26,115,232,0.35);
+      min-width: 220px;
     }
 
     #openBtn:hover { background: #1558b0; transform: translateY(-1px); }
     #openBtn:active { background: #0f47a1; transform: translateY(0); }
 
-    #openBtn img {
-      width: 28px;
-      height: 28px;
-      border-radius: 6px;
-      flex-shrink: 0;
-    }
-
-    #openBtn span {
-      display: block;
+    .btn-icon {
+      width: 40px;
+      height: 40px;
+      stroke: #fff;
     }
 
     #status {
@@ -93,14 +99,20 @@
 <body>
   <div class="layout">
     <div class="left">
-      <img class="logo" src="icons/icon128.png" alt="Tab Group Workspaces" />
-      <h1>Welcome to<br>Tab Group Workspaces!</h1>
+      <div class="headline">
+        <img class="logo" src="icons/icon128.png" alt="Tab Group Workspaces" />
+        <h1>Welcome to<br>Tab Group Workspaces!</h1>
+      </div>
     </div>
     <div class="right">
       <div>
         <button id="openBtn">
-          <img src="icons/icon48.png" alt="" />
-          <span>Open the Workspaces Sidebar<br>to get started</span>
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="3" width="20" height="18" rx="2"/>
+            <line x1="15" y1="3" x2="15" y2="21"/>
+            <polyline points="10 8 7 12 10 16"/>
+          </svg>
+          Open the Workspaces Sidebar
         </button>
         <p id="status"></p>
       </div>
