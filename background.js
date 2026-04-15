@@ -17,6 +17,14 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   } catch (e) {
     console.error('background: onInstalled failed', e);
   }
+
+  // Open the welcome tab. The button on that page opens the sidebar via a user
+  // gesture, which is required by Chrome for sidePanel.open().
+  try {
+    chrome.tabs.create({ url: chrome.runtime.getURL('welcome.html') });
+  } catch (e) {
+    console.warn('background: could not open welcome tab on install', e);
+  }
 });
 
 /* ---------------- Fresh-start cleanup ---------------- */

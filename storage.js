@@ -45,30 +45,12 @@ function storageSet(data) {
 /* ---------------- Init ---------------- */
 
 async function initWorkspaces() {
-  const data = await storageGet(['workspaces', 'activeWorkspaceId']);
-  const updates = {};
+  const data = await storageGet(['workspaces']);
 
-  if (!data.workspaces || Object.keys(data.workspaces).length === 0) {
-    const now = Date.now();
-    updates.workspaces = {
-      [WS_DEFAULT_ID]: {
-        id: WS_DEFAULT_ID,
-        name: 'My First Workspace',
-        createdAt: now,
-        updatedAt: now,
-        pinnedTabs: [],
-        groups: [],
-        ungroupedTabs: []
-      }
-    };
-  }
-
-  // Do NOT auto-set activeWorkspaceId here. On fresh Chrome starts, no workspace
-  // should be considered active until the user explicitly selects one.
-  // (The onStartup handler in background.js clears it on every launch.)
-
-  if (Object.keys(updates).length > 0) {
-    await storageSet(updates);
+  // Ensure the workspaces key exists. Do NOT seed a default workspace —
+  // the sidebar onboarding flow guides new users through creating their first one.
+  if (!data.workspaces) {
+    await storageSet({ workspaces: {} });
   }
 }
 

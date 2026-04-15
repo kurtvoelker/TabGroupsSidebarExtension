@@ -46,6 +46,10 @@ let wsGearMenuForId = null;  // id of the workspace whose gear menu is open
 let wsRenamingId = null;     // id of the workspace currently being renamed inline
 let wsCreateFormVisible = false;
 
+// Onboarding state — tracks which step of first-workspace creation we're in.
+// null = show empty-state chip; 'choice' = show two paths; 'name-current' / 'name-fresh' = name input.
+let onboardingStep = null;
+
 // Footer / license UI state
 let footerLicenseInputVisible = false;
 
@@ -740,10 +744,131 @@ async function refreshWorkspacesCache() {
   activeWorkspaceIdCache = sidebarWindowId ? await getWindowWorkspaceId(sidebarWindowId) : null;
 }
 
+/* ---------------- First-run onboarding ---------------- */
+
+function renderOnboarding(bar) {
+  const wrap = document.createElement('div');
+  wrap.className = 'ws-onboarding';
+
+  if (!onboardingStep) {
+    // Empty state — no workspaces exist yet.
+    const chip = document.createElement('button');
+    chip.className = 'ws-onboarding-chip';
+    chip.textContent = 'No workspaces yet — set up your first one →';
+    chip.addEventListener('click', () => {
+      onboardingStep = 'choice';
+      renderWorkspaceSwitcher();
+    });
+    wrap.appendChild(chip);
+
+  } else if (onboardingStep === 'choice') {
+    const q = document.createElement('p');
+    q.className = 'ws-onboarding-q';
+    q.textContent = 'How would you like to start?';
+    wrap.appendChild(q);
+
+    const optA = document.createElement('button');
+    optA.className = 'ws-onboarding-opt';
+    optA.innerHTML = '<strong>Save my current tabs</strong><span>Name and save this window\'s tabs as a workspace</span>';
+    optA.addEventListener('click', () => { onboardingStep = 'name-current'; renderWorkspaceSwitcher(); });
+
+    const optB = document.createElement('button');
+    optB.className = 'ws-onboarding-opt';
+    optB.innerHTML = '<strong>Start fresh</strong><span>Open a new blank window as a workspace</span>';
+    optB.addEventListener('click', () => { onboardingStep = 'name-fresh'; renderWorkspaceSwitcher(); });
+
+    const back = document.createElement('button');
+    back.className = 'ws-onboarding-back';
+    back.textContent = '← Back';
+    back.addEventListener('click', () => { onboardingStep = null; renderWorkspaceSwitcher(); });
+
+    wrap.appendChild(optA);
+    wrap.appendChild(optB);
+    wrap.appendChild(back);
+
+  } else if (onboardingStep === 'name-current' || onboardingStep === 'name-fresh') {
+    const isFresh = onboardingStep === 'name-fresh';
+
+    const q = document.createElement('p');
+    q.className = 'ws-onboarding-q';
+    q.textContent = 'Name your workspace:';
+    wrap.appendChild(q);
+
+    const inputRow = document.createElement('div');
+    inputRow.className = 'ws-create-input-row';
+
+    const input = document.createElement('input');
+    input.placeholder = 'e.g. Work, Personal, Research…';
+
+    const confirmBtn = document.createElement('button');
+    confirmBtn.className = 'ws-create-confirm';
+    confirmBtn.textContent = '✓';
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'ws-create-cancel';
+    cancelBtn.textContent = '✕';
+
+    const submit = async () => {
+      const name = input.value.trim();
+      if (!name) { input.focus(); return; }
+      confirmBtn.disabled = true;
+      const newWorkspace = await createWorkspace(name);
+      onboardingStep = null;
+      if (isFresh) {
+        await doStartFresh(newWorkspace);
+      } else {
+        await doSwitchWorkspace(newWorkspace.id);
+        showSuccessStatus(`✓ Current tabs saved as "${newWorkspace.name}"`);
+      }
+    };
+
+    const cancel = () => { onboardingStep = 'choice'; renderWorkspaceSwitcher(); };
+
+    confirmBtn.addEventListener('click', submit);
+    cancelBtn.addEventListener('click', cancel);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') submit();
+      if (e.key === 'Escape') cancel();
+    });
+
+    inputRow.appendChild(input);
+    inputRow.appendChild(confirmBtn);
+    inputRow.appendChild(cancelBtn);
+    wrap.appendChild(inputRow);
+    requestAnimationFrame(() => input.focus());
+  }
+
+  bar.appendChild(wrap);
+}
+
+async function doStartFresh(workspace) {
+  try {
+    const newWin = await chrome.windows.create({ focused: true });
+    await setWindowWorkspaceId(newWin.id, workspace.id);
+    // Attempt to open the sidebar in the new window — works if still within
+    // the user gesture context of the button click that triggered this.
+    try {
+      await chrome.sidePanel.open({ windowId: newWin.id });
+    } catch (e) {
+      console.warn('doStartFresh: could not auto-open sidebar in new window', e);
+    }
+    await refreshWorkspacesCache();
+    renderWorkspaceSwitcher();
+  } catch (e) {
+    console.error('doStartFresh failed:', e);
+    showStatus('Failed to create workspace — see console.');
+  }
+}
+
 function renderWorkspaceSwitcher() {
   const bar = $('workspaceBar');
   if (!bar) return;
   bar.innerHTML = '';
+
+  if (Object.keys(workspacesCache).length === 0) {
+    renderOnboarding(bar);
+    return;
+  }
 
   const activeWs = workspacesCache[activeWorkspaceIdCache];
 
