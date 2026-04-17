@@ -12,8 +12,8 @@ const FEATURES = {
 const FREE_WORKSPACE_LIMIT = 3; // eslint-disable-line no-unused-vars
 
 const LS_STORE_ID       = 341342;
-const LS_URL_ANNUAL     = 'https://tabgroups.lemonsqueezy.com/checkout/buy/14f28053-a3a8-4080-b2a8-04f70fca920d';
-const LS_URL_LIFETIME   = 'https://tabgroups.lemonsqueezy.com/checkout/buy/e276db60-d7d3-4c42-aff0-1f7c32ca8f44';
+const LS_URL_ANNUAL     = 'https://tabgroups.lemonsqueezy.com/checkout/buy/d68f5603-c188-4b51-a7f6-fa8140a53eff';
+const LS_URL_LIFETIME   = 'https://tabgroups.lemonsqueezy.com/checkout/buy/c3af4842-c2c8-41c1-8743-6550f86423a8';
 
 const LS_ACTIVATE_URL   = 'https://api.lemonsqueezy.com/v1/licenses/activate';
 const LS_VALIDATE_URL   = 'https://api.lemonsqueezy.com/v1/licenses/validate';
