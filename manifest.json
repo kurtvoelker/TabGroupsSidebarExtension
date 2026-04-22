@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Tab Group Workspaces",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Organize your tabs into workspaces — each with its own tab groups, pinned tabs, and sidebar. Switch windows, stay focused.",
   "permissions": [
     "tabs",
