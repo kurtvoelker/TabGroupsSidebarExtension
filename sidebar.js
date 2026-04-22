@@ -1501,7 +1501,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       // Workspace list changed (workspace created, renamed, or deleted in any window).
       const wsArea = canUseFeature(FEATURES.CLOUD_SYNC) ? 'sync' : 'local';
-      if (area === wsArea && changes.workspaces) {
+      if (area === wsArea && (changes.workspaceIds || Object.keys(changes).some(k => k.startsWith('ws_')))) {
         await refreshWorkspacesCache();
         renderWorkspaceSwitcher();
       }
