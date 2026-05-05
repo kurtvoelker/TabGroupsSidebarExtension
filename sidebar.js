@@ -926,7 +926,7 @@ function renderWorkspaceSwitcher() {
     const sorted = Object.values(workspacesCache).sort((a, b) => {
       if (a.id === activeWorkspaceIdCache) return -1;
       if (b.id === activeWorkspaceIdCache) return 1;
-      return a.name.localeCompare(b.name);
+      return (a.name || '').localeCompare(b.name || '');
     });
 
     for (const ws of sorted) {
@@ -1310,8 +1310,7 @@ function _renderLicenseInputFooter(panel) {
     const result = await activateLicense(key);
     if (result.ok) {
       footerLicenseInputVisible = false;
-      try { await migrateLocalToSync(); } catch (e) { console.warn('migrateLocalToSync failed', e); }
-      renderFooter();
+renderFooter();
     } else {
       confirmBtn.disabled = false;
       hint.textContent = result.error || 'Invalid key. Please try again.';
@@ -1500,8 +1499,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       // Workspace list changed (workspace created, renamed, or deleted in any window).
-      const wsArea = canUseFeature(FEATURES.CLOUD_SYNC) ? 'sync' : 'local';
-      if (area === wsArea && (changes.workspaceIds || Object.keys(changes).some(k => k.startsWith('ws_')))) {
+      if (area === 'local' && (changes.workspaceIds || Object.keys(changes).some(k => k.startsWith('ws_')))) {
         await refreshWorkspacesCache();
         renderWorkspaceSwitcher();
       }

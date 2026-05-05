@@ -2,13 +2,8 @@
 // Depends on: permissions.js (loaded first)
 // No DOM access. No Chrome tabs API. Pure data operations.
 //
-// Free tier  → chrome.storage.local  (device-only, 10MB)
-// Pro tier   → chrome.storage.sync   (cross-device, 100KB total / 8KB per item)
-//
-// Workspaces are stored as individual keys (one per workspace) to stay under
-// the 8KB per-item sync limit. A 'workspaceIds' index key tracks all IDs.
-//
-// License data is always stored in chrome.storage.local regardless of tier.
+// All workspace data is stored in chrome.storage.local (10MB, device-only).
+// License data is also stored in chrome.storage.local.
 
 const WS_DEFAULT_ID  = 'ws_default'; // eslint-disable-line no-unused-vars
 const WS_INDEX_KEY   = 'workspaceIds';
@@ -16,13 +11,6 @@ const WS_INDEX_KEY   = 'workspaceIds';
 /* ---------------- Storage backend selector ---------------- */
 
 function _getStorage() {
-  if (
-    typeof canUseFeature === 'function' &&
-    canUseFeature(FEATURES.CLOUD_SYNC) &&
-    chrome.storage.sync
-  ) {
-    return chrome.storage.sync;
-  }
   return chrome.storage.local;
 }
 
@@ -58,12 +46,22 @@ function storageRemove(keys) {
 async function initWorkspaces() {
   const data = await storageGet([WS_INDEX_KEY, 'workspaces']);
 
-  // Migrate old single-key format to sharded format.
+  // Migrate old single-key format to sharded format. Write each workspace
+  // individually so a single oversized workspace can't block the entire migration.
   if (data.workspaces && !data[WS_INDEX_KEY]) {
     const ids = Object.keys(data.workspaces);
-    const writes = { [WS_INDEX_KEY]: ids };
-    for (const id of ids) writes[id] = data.workspaces[id];
-    await storageSet(writes);
+    await storageSet({ [WS_INDEX_KEY]: ids });
+    for (const id of ids) {
+      try {
+        await storageSet({ [id]: data.workspaces[id] });
+      } catch (e) {
+        if (e.message && (e.message.includes('QUOTA_BYTES') || e.message.includes('kQuotaBytesPerItem'))) {
+          console.warn(`storage: workspace "${id}" too large to sync, skipping`);
+        } else {
+          throw e;
+        }
+      }
+    }
     await storageRemove('workspaces');
     return;
   }
@@ -76,21 +74,29 @@ async function initWorkspaces() {
 /* ---------------- Reads ---------------- */
 
 async function getAllWorkspaces() {
-  const indexData = await storageGet([WS_INDEX_KEY]);
+  const indexData = await storageGet([WS_INDEX_KEY, 'workspaces']);
+
+  // Fallback: if migration hasn't run yet, return old single-key format directly.
+  if (!indexData[WS_INDEX_KEY] && indexData.workspaces) {
+    return indexData.workspaces;
+  }
+
   const ids = indexData[WS_INDEX_KEY] || [];
   if (ids.length === 0) return {};
 
   const workspaceData = await storageGet(ids);
   const workspaces = {};
   for (const id of ids) {
-    if (workspaceData[id]) workspaces[id] = workspaceData[id];
+    if (workspaceData[id] && workspaceData[id].name) workspaces[id] = workspaceData[id];
   }
   return workspaces;
 }
 
 async function getWorkspace(id) {
-  const data = await storageGet([id]);
-  return data[id] || null;
+  const data = await storageGet([id, 'workspaces']);
+  if (data[id]) return data[id];
+  // Fallback: check old single-key format if individual key doesn't exist yet.
+  return (data.workspaces || {})[id] || null;
 }
 
 async function getActiveWorkspaceId() {
@@ -125,14 +131,18 @@ async function setWindowWorkspaceId(windowId, wsId) {
 }
 
 async function saveWorkspace(id, workspaceData) {
-  const [indexData, existing] = await Promise.all([
+  const [indexData, existing, oldData] = await Promise.all([
     storageGet([WS_INDEX_KEY]),
-    storageGet([id])
+    storageGet([id]),
+    storageGet(['workspaces'])
   ]);
 
   const ids = indexData[WS_INDEX_KEY] || [];
+  // Prefer individual key; fall back to old single-key format during migration window.
+  const existingWorkspace = existing[id] || (oldData.workspaces || {})[id] || {};
+
   const updated = {
-    ...(existing[id] || {}),
+    ...existingWorkspace,
     ...workspaceData,
     id,
     updatedAt: Date.now()
@@ -199,63 +209,16 @@ async function renameWorkspace(id, name) {
 /* ---------------- Quota ---------------- */
 
 async function checkStorageQuota() {
-  const backend = _getStorage();
   return new Promise((resolve) => {
-    backend.getBytesInUse(null, (used) => {
-      const quota = backend.QUOTA_BYTES || (backend === chrome.storage.sync ? 102400 : 10485760);
-      resolve({ used, quota, pct: Math.round((used / quota) * 100), sync: backend === chrome.storage.sync });
+    chrome.storage.local.getBytesInUse(null, (used) => {
+      const quota = chrome.storage.local.QUOTA_BYTES || 10485760;
+      resolve({ used, quota, pct: Math.round((used / quota) * 100), sync: false });
     });
   });
 }
 
-/* ---------------- Sync migration ---------------- */
-
-// Call when a user activates a Pro license to copy their local workspaces into
-// sync storage. Safe to call multiple times — skips if sync already has data.
-async function migrateLocalToSync() {
-  if (!chrome.storage.sync) return;
-
-  const [localData, syncData] = await Promise.all([
-    new Promise((resolve) => chrome.storage.local.get(null, resolve)),
-    new Promise((resolve) => chrome.storage.sync.get([WS_INDEX_KEY, 'workspaces'], resolve))
-  ]);
-
-  const syncHasData =
-    (syncData[WS_INDEX_KEY] && syncData[WS_INDEX_KEY].length > 0) ||
-    (syncData.workspaces && Object.keys(syncData.workspaces).length > 0);
-  if (syncHasData) return;
-
-  const writes = {};
-
-  if (localData[WS_INDEX_KEY]) {
-    // Already sharded locally — copy index and individual workspace keys.
-    writes[WS_INDEX_KEY] = localData[WS_INDEX_KEY];
-    for (const id of localData[WS_INDEX_KEY]) {
-      if (localData[id]) writes[id] = localData[id];
-    }
-  } else if (localData.workspaces) {
-    // Old single-key format — shard on the way over.
-    const ids = Object.keys(localData.workspaces);
-    writes[WS_INDEX_KEY] = ids;
-    for (const id of ids) writes[id] = localData.workspaces[id];
-  }
-
-  if (localData.activeWorkspaceId) writes.activeWorkspaceId = localData.activeWorkspaceId;
-
-  // Write each key individually to respect per-item quota.
-  for (const [key, value] of Object.entries(writes)) {
-    await new Promise((resolve, reject) => {
-      chrome.storage.sync.set({ [key]: value }, () => {
-        if (chrome.runtime.lastError) reject(chrome.runtime.lastError);
-        else resolve();
-      });
-    });
-  }
-
-  if (Object.keys(writes).length > 0) {
-    console.log('storage: migrated local workspaces to sync storage');
-  }
-}
+// No-op: sync is handled externally. Kept to avoid call-site errors during transition.
+async function migrateLocalToSync() {}
 
 /* ---------------- Custom errors ---------------- */
 

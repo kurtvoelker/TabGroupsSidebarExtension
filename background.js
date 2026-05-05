@@ -37,7 +37,6 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 // Fired when Chrome itself starts (full quit → relaunch).
 chrome.runtime.onStartup.addListener(() => {
   chrome.storage.local.remove('activeWorkspaceId');
-  chrome.storage.sync.remove('activeWorkspaceId');
 });
 
 // Fired whenever any window closes.
@@ -49,7 +48,6 @@ chrome.windows.onRemoved.addListener((windowId) => {
   chrome.windows.getAll({ windowTypes: ['normal'] }, (remaining) => {
     if (!remaining || remaining.length === 0) {
       chrome.storage.local.remove('activeWorkspaceId');
-      chrome.storage.sync.remove('activeWorkspaceId');
     }
   });
 });
