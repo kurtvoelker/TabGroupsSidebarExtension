@@ -1275,27 +1275,22 @@ async function _applyIncrementalGroupSync(updatedWorkspace) {
       chrome.tabs.query({ windowId: sidebarWindowId })
     ]);
 
-    // Map group name (lowercase) → { chromeGroupId, Set of normalized tab URLs }
+    // Map group name (lowercase) → { id, urls: Set<normalizedUrl> }
     const chromeGroupsByName = new Map();
     for (const g of existingChromeGroups) {
       const name = (g.title || '').toLowerCase();
       if (!name) continue;
-      const urls = new Set(
-        existingTabs.filter(t => t.groupId === g.id).map(t => _normalizeUrl(t.url))
-      );
+      const urls = new Set(existingTabs.filter(t => t.groupId === g.id).map(t => _normalizeUrl(t.url)));
       chromeGroupsByName.set(name, { id: g.id, urls });
     }
 
-    // Set of normalized URLs for all currently pinned tabs
-    const currentPinnedUrls = new Set(
-      existingTabs
-        .filter(t => t.pinned)
-        .map(t => _normalizeUrl(t.url))
-        .filter(url => _isSyncableUrl(url))
-    );
-
-    // Also track all open URLs to avoid duplicating a tab that exists anywhere
-    const allOpenUrls = new Set(existingTabs.map(t => _normalizeUrl(t.url)));
+    // Map normalizedUrl → chrome.Tab — lets us find and move existing tabs
+    // instead of opening duplicates when a tab has been relocated.
+    const urlToTab = new Map();
+    for (const tab of existingTabs) {
+      const norm = _normalizeUrl(tab.url);
+      if (norm && _isSyncableUrl(tab.url) && !urlToTab.has(norm)) urlToTab.set(norm, tab);
+    }
 
     console.log('[SYNC] _applyIncrementalGroupSync — Chrome groups:', [...chromeGroupsByName.keys()]);
     console.log('[SYNC] _applyIncrementalGroupSync — synced groups:', (updatedWorkspace.groups || []).map(g => g.name || '(unnamed)'));
@@ -1304,84 +1299,91 @@ async function _applyIncrementalGroupSync(updatedWorkspace) {
 
     let added = false;
 
-    // Case 0: pinned tabs — open any not already pinned in this window.
-    // Opened first so they anchor correctly to the left of the tab strip.
-    const newPinned = (updatedWorkspace.pinnedTabs || []).filter(t =>
-      _isSyncableUrl(t.url) && !currentPinnedUrls.has(_normalizeUrl(t.url))
-    );
-    console.log('[SYNC] new pinned tabs to add:', newPinned.length);
-    for (const tabData of newPinned) {
-      try {
-        await chrome.tabs.create({ url: tabData.url, windowId: sidebarWindowId, pinned: true, active: false });
-        added = true;
-      } catch (e) { console.warn('[SYNC] could not open pinned tab', tabData.url, e); }
-    }
-
-    // Cases 1 & 2: named groups
-    for (const group of (updatedWorkspace.groups || [])) {
-      const groupName = (group.name || '').trim();
-      if (!groupName) { console.log('[SYNC] skipping unnamed group'); continue; }
-      if (!Array.isArray(group.tabs) || group.tabs.length === 0) continue;
-
-      const existing = chromeGroupsByName.get(groupName.toLowerCase());
-
+    // Case 0: pinned tabs.
+    // If the URL already exists in Chrome but isn't pinned, pin it (move).
+    // If it doesn't exist at all, open it pinned.
+    for (const tabData of (updatedWorkspace.pinnedTabs || [])) {
+      if (!_isSyncableUrl(tabData.url)) continue;
+      const norm = _normalizeUrl(tabData.url);
+      const existing = urlToTab.get(norm);
       if (!existing) {
-        // Case 1: entire group is new — open all its tabs and create the group
-        console.log('[SYNC] new group:', groupName, '—', group.tabs.length, 'tab(s)');
-        const tabIds = [];
-        for (const tabData of group.tabs) {
-          if (!_isSyncableUrl(tabData.url)) continue;
-          try {
-            const tab = await chrome.tabs.create({ url: tabData.url, windowId: sidebarWindowId, active: false });
-            tabIds.push(tab.id);
-          } catch (e) { console.warn('[SYNC] could not open tab', tabData.url, e); }
-        }
-        if (tabIds.length > 0) {
-          try {
-            const gid = await chrome.tabs.group({ tabIds, createProperties: { windowId: sidebarWindowId } });
-            await chrome.tabGroups.update(gid, { title: groupName, color: group.color || 'grey', collapsed: group.collapsed || false });
-            added = true;
-            console.log('[SYNC] group created:', groupName);
-          } catch (e) { console.warn('[SYNC] could not create group', groupName, e); }
-        }
-      } else {
-        // Case 2: group exists — add only tabs whose URLs aren't already in the group
-        const missingTabs = group.tabs.filter(t =>
-          _isSyncableUrl(t.url) && !existing.urls.has(_normalizeUrl(t.url))
-        );
-        console.log('[SYNC] existing group:', groupName, '—', missingTabs.length, 'missing tab(s)');
-        if (missingTabs.length > 0) {
-          const tabIds = [];
-          for (const tabData of missingTabs) {
-            try {
-              const tab = await chrome.tabs.create({ url: tabData.url, windowId: sidebarWindowId, active: false });
-              tabIds.push(tab.id);
-            } catch (e) { console.warn('[SYNC] could not open tab', tabData.url, e); }
-          }
-          if (tabIds.length > 0) {
-            try {
-              await chrome.tabs.group({ tabIds, groupId: existing.id });
-              added = true;
-              console.log('[SYNC] tabs added to group:', groupName);
-            } catch (e) { console.warn('[SYNC] could not add tabs to group', groupName, e); }
-          }
-        }
+        try {
+          await chrome.tabs.create({ url: tabData.url, windowId: sidebarWindowId, pinned: true, active: false });
+          added = true;
+        } catch (e) { console.warn('[SYNC] could not open pinned tab', tabData.url, e); }
+      } else if (!existing.pinned) {
+        try { await chrome.tabs.update(existing.id, { pinned: true }); added = true; }
+        catch (e) { console.warn('[SYNC] could not pin tab', tabData.url, e); }
       }
     }
 
-    // Case 3: ungrouped tabs — add any that aren't already open anywhere in the window
-    const newUngrouped = (updatedWorkspace.ungroupedTabs || []).filter(t =>
-      _isSyncableUrl(t.url) && !allOpenUrls.has(_normalizeUrl(t.url))
-    );
-    console.log('[SYNC] new ungrouped tabs to add:', newUngrouped.length);
-    for (const tabData of newUngrouped) {
-      try {
-        await chrome.tabs.create({ url: tabData.url, windowId: sidebarWindowId, active: false });
-        added = true;
-      } catch (e) { console.warn('[SYNC] could not open ungrouped tab', tabData.url, e); }
+    // Cases 1 & 2: named groups.
+    // For each tab that should be in a group:
+    //   - Already in the correct Chrome group → nothing to do
+    //   - Exists in Chrome but wrong location → move it (chrome.tabs.group)
+    //   - Doesn't exist in Chrome at all → open it fresh, then add to group
+    for (const group of (updatedWorkspace.groups || [])) {
+      const groupName = (group.name || '').trim();
+      if (!groupName) continue;
+      if (!Array.isArray(group.tabs) || group.tabs.length === 0) continue;
+
+      const existing = chromeGroupsByName.get(groupName.toLowerCase());
+      const tabsToMove = [];
+      const tabsToOpen = [];
+
+      for (const tabData of group.tabs) {
+        if (!_isSyncableUrl(tabData.url)) continue;
+        const norm = _normalizeUrl(tabData.url);
+        if (existing && existing.urls.has(norm)) continue; // already in the right group
+        const found = urlToTab.get(norm);
+        if (found) { tabsToMove.push(found.id); }
+        else       { tabsToOpen.push(tabData); }
+      }
+
+      console.log('[SYNC] group:', groupName, '— to move:', tabsToMove.length, 'to open:', tabsToOpen.length);
+
+      // Open tabs that don't yet exist in Chrome
+      const newTabIds = [];
+      for (const tabData of tabsToOpen) {
+        try {
+          const tab = await chrome.tabs.create({ url: tabData.url, windowId: sidebarWindowId, active: false });
+          newTabIds.push(tab.id);
+        } catch (e) { console.warn('[SYNC] could not open tab', tabData.url, e); }
+      }
+
+      const allTabIds = [...tabsToMove, ...newTabIds];
+      if (allTabIds.length > 0) {
+        try {
+          if (existing) {
+            await chrome.tabs.group({ tabIds: allTabIds, groupId: existing.id });
+          } else {
+            const gid = await chrome.tabs.group({ tabIds: allTabIds, createProperties: { windowId: sidebarWindowId } });
+            await chrome.tabGroups.update(gid, { title: groupName, color: group.color || 'grey', collapsed: group.collapsed || false });
+          }
+          added = true;
+        } catch (e) { console.warn('[SYNC] could not assign tabs to group', groupName, e); }
+      }
     }
 
-    console.log('[SYNC] _applyIncrementalGroupSync done — added anything:', added);
+    // Case 3: ungrouped tabs.
+    // If the URL is in Chrome but grouped, ungroup it (move).
+    // If it doesn't exist, open it ungrouped.
+    for (const tabData of (updatedWorkspace.ungroupedTabs || [])) {
+      if (!_isSyncableUrl(tabData.url)) continue;
+      const norm = _normalizeUrl(tabData.url);
+      const found = urlToTab.get(norm);
+      if (!found) {
+        try {
+          await chrome.tabs.create({ url: tabData.url, windowId: sidebarWindowId, active: false });
+          added = true;
+        } catch (e) { console.warn('[SYNC] could not open ungrouped tab', tabData.url, e); }
+      } else if (found.groupId >= 0) {
+        try { await chrome.tabs.ungroup([found.id]); added = true; }
+        catch (e) { console.warn('[SYNC] could not ungroup tab', tabData.url, e); }
+      }
+    }
+
+    console.log('[SYNC] _applyIncrementalGroupSync done — changed:', added);
     return added;
   } catch (e) {
     console.error('_applyIncrementalGroupSync failed:', e);
@@ -1404,42 +1406,41 @@ async function _computeRemovals(remoteWorkspace) {
     chrome.tabs.query({ windowId: sidebarWindowId })
   ]);
 
-  const remoteGroupNames = new Set(
-    (remoteWorkspace.groups || []).map(g => (g.name || '').toLowerCase()).filter(Boolean)
-  );
-  const remoteGroupTabUrls = new Map();
-  for (const g of (remoteWorkspace.groups || [])) {
-    const name = (g.name || '').toLowerCase();
-    if (!name) continue;
-    remoteGroupTabUrls.set(name, new Set((g.tabs || []).map(t => _normalizeUrl(t.url))));
-  }
-  const remotePinnedUrls    = new Set((remoteWorkspace.pinnedTabs    || []).map(t => _normalizeUrl(t.url)));
-  const remoteUngroupedUrls = new Set((remoteWorkspace.ungroupedTabs || []).map(t => _normalizeUrl(t.url)));
+  // All URLs present ANYWHERE in the remote workspace (across all groups,
+  // ungrouped, and pinned). A local tab whose URL is in this set is being
+  // MOVED, not deleted — the incremental sync will reposition it.
+  // We only prompt for removal when a URL has been truly deleted from the workspace.
+  const allRemoteUrls = new Set([
+    ...(remoteWorkspace.pinnedTabs    || []).map(t => _normalizeUrl(t.url)),
+    ...(remoteWorkspace.ungroupedTabs || []).map(t => _normalizeUrl(t.url)),
+    ...(remoteWorkspace.groups        || []).flatMap(g => (g.tabs || []).map(t => _normalizeUrl(t.url)))
+  ].filter(u => _isSyncableUrl(u)));
 
   const removals = { groups: [], groupTabs: [], ungrouped: [], pinned: [] };
 
   for (const g of existingChromeGroups) {
     const name = (g.title || '').toLowerCase();
     if (!name) continue;
-    const groupTabs = existingTabs.filter(t => t.groupId === g.id);
-    if (!remoteGroupNames.has(name)) {
-      removals.groups.push({ name: g.title, tabCount: groupTabs.length, tabIds: groupTabs.map(t => t.id) });
+    const groupTabs   = existingTabs.filter(t => t.groupId === g.id && _isSyncableUrl(t.url));
+    const deletedTabs = groupTabs.filter(t => !allRemoteUrls.has(_normalizeUrl(t.url)));
+    if (deletedTabs.length === 0) continue;
+    if (deletedTabs.length === groupTabs.length) {
+      // Every tab in the group is truly gone — show as a group-level removal
+      removals.groups.push({ name: g.title, tabCount: deletedTabs.length, tabIds: deletedTabs.map(t => t.id) });
     } else {
-      const remoteUrls = remoteGroupTabUrls.get(name) || new Set();
-      for (const tab of groupTabs) {
-        if (_isSyncableUrl(tab.url) && !remoteUrls.has(_normalizeUrl(tab.url))) {
-          removals.groupTabs.push({ groupName: g.title, url: tab.url, tabId: tab.id });
-        }
+      // Partial deletion — list individual tabs
+      for (const tab of deletedTabs) {
+        removals.groupTabs.push({ groupName: g.title, url: tab.url, tabId: tab.id });
       }
     }
   }
   for (const tab of existingTabs.filter(t => t.pinned)) {
-    if (_isSyncableUrl(tab.url) && !remotePinnedUrls.has(_normalizeUrl(tab.url))) {
+    if (_isSyncableUrl(tab.url) && !allRemoteUrls.has(_normalizeUrl(tab.url))) {
       removals.pinned.push({ url: tab.url, tabId: tab.id });
     }
   }
   for (const tab of existingTabs.filter(t => !t.pinned && t.groupId < 0)) {
-    if (_isSyncableUrl(tab.url) && !remoteUngroupedUrls.has(_normalizeUrl(tab.url))) {
+    if (_isSyncableUrl(tab.url) && !allRemoteUrls.has(_normalizeUrl(tab.url))) {
       removals.ungrouped.push({ url: tab.url, tabId: tab.id });
     }
   }
