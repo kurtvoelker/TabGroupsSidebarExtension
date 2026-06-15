@@ -1,22 +1,6 @@
 // workspace.js — Chrome API orchestration for workspace operations
 // Depends on: storage.js (loaded first)
 
-/* ---------------- Helpers ---------------- */
-
-// Returns true if a captured workspace state contains at least one tab with a
-// real URL (not a new-tab page or blank). Used to distinguish a meaningful
-// window from a freshly-opened Chrome window.
-function _hasRealContent(state) {
-  const isBlankUrl = url => !url ||
-    url === 'chrome://newtab/' ||
-    url === 'about:blank' ||
-    url === 'about:newtab';
-  const anyReal = tabs => (tabs || []).some(t => !isBlankUrl(t.url));
-  return anyReal(state.pinnedTabs) ||
-    anyReal(state.ungroupedTabs) ||
-    (state.groups || []).some(g => anyReal(g.tabs));
-}
-
 /* ---------------- Capture ---------------- */
 
 // Reads open tabs and tab groups for a specific window and returns a
@@ -218,71 +202,30 @@ async function switchWorkspace(targetId, expandedGroupIds, allOpenState, callerW
     const targetWorkspace = await getWorkspace(targetId);
     if (!targetWorkspace) throw new Error(`Workspace "${targetId}" not found.`);
 
+    // Save the current workspace state before leaving (only if this window has one assigned).
     if (activeId !== null) {
-      // This window already has a workspace. Open a new window for the target
-      // rather than replacing this window's tabs — each workspace lives in its
-      // own window, so switching navigates between windows, not content.
       const currentState = await captureCurrentState(expandedGroupIds, allOpenState, windowId);
       await saveWorkspace(activeId, currentState);
-
-      const newWin = await chrome.windows.create({ focused: true });
-      const newWindowId = newWin.id;
-      const initialTabId = newWin.tabs && newWin.tabs[0] ? newWin.tabs[0].id : null;
-
-      await restoreWorkspaceTabs(targetWorkspace, newWindowId);
-
-      // Remove the blank tab Chrome opened the new window with.
-      if (initialTabId) {
-        const remaining = await chrome.tabs.query({ windowId: newWindowId });
-        if (remaining.length > 1) {
-          try { await chrome.tabs.remove(initialTabId); } catch (e) { /* already gone */ }
-        }
-      }
-
-      await setWindowWorkspaceId(newWindowId, targetId);
-      return;
-
-    } else {
-      // No workspace assigned to this window yet.
-      // Selecting a workspace means "claim it — this window IS now that workspace."
-      // Save the current tabs into the workspace and assign; no tab manipulation.
-      // Only fall through to load if the window is completely blank (fresh Chrome start),
-      // since a blank window claiming a workspace would erase its saved content.
-      const currentState = await captureCurrentState(expandedGroupIds, allOpenState, windowId);
-
-      if (_hasRealContent(currentState)) {
-        // Adopt: current tabs become this workspace's content.
-        // Real URLs only — a window with only chrome://newtab/ is treated as blank
-        // so it loads the saved workspace instead of overwriting it.
-        await saveWorkspace(targetId, currentState);
-        await setWindowWorkspaceId(windowId, targetId);
-        return; // done — no tabs need to change
-      }
-      // Blank window: fall through to restore the workspace's saved content below.
     }
 
-    // Close this window's tabs and restore the target workspace into it.
-    const placeholder = await chrome.tabs.create({ windowId });
+    // Always open the target workspace in a new window, leaving the current window untouched.
+    // This applies whether the current window has an assigned workspace or not — clicking a
+    // workspace means "go there", never "overwrite it with what I have open".
+    const newWin = await chrome.windows.create({ focused: true });
+    const newWindowId = newWin.id;
+    const initialTabId = newWin.tabs && newWin.tabs[0] ? newWin.tabs[0].id : null;
 
-    const windowTabs = await chrome.tabs.query({ windowId });
-    const toClose = windowTabs.map(t => t.id).filter(id => id !== placeholder.id);
-    if (toClose.length > 0) {
-      try {
-        await chrome.tabs.remove(toClose);
-      } catch (e) {
-        console.warn('switchWorkspace: some tabs could not be closed', e);
+    await restoreWorkspaceTabs(targetWorkspace, newWindowId);
+
+    // Remove the blank tab Chrome opened the new window with.
+    if (initialTabId) {
+      const remaining = await chrome.tabs.query({ windowId: newWindowId });
+      if (remaining.length > 1) {
+        try { await chrome.tabs.remove(initialTabId); } catch (e) { /* already gone */ }
       }
     }
 
-    await restoreWorkspaceTabs(targetWorkspace, windowId);
-
-    const remaining = await chrome.tabs.query({ windowId });
-    if (remaining.length > 1) {
-      try { await chrome.tabs.remove(placeholder.id); } catch (e) { /* already gone */ }
-    }
-
-    // Commit — record which workspace this window is now displaying.
-    await setWindowWorkspaceId(windowId, targetId);
+    await setWindowWorkspaceId(newWindowId, targetId);
 
   } finally {
     _switchInProgress = false;
