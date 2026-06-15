@@ -345,6 +345,48 @@ body {
 .pro-license-btn:hover { background: rgba(0,0,0,0.03); }
 .pro-license-btn:active { background: rgba(0,0,0,0.07); }
 
+/* Pro upgrade overlay — shown when a free user clicks the cloud sync button */
+.pro-upgrade-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.pro-upgrade-overlay-panel {
+  position: relative;
+  width: 100%;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.18);
+}
+
+.pro-upgrade-overlay-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.pro-upgrade-overlay-close:hover { background: rgba(0, 0, 0, 0.07); }
+
+@media (prefers-color-scheme: dark) {
+  .pro-upgrade-overlay-close:hover { background: rgba(255, 255, 255, 0.1); }
+}
+
 /* License key input */
 .pro-key-row {
   display: flex;

@@ -1609,6 +1609,72 @@ function renderFooter() {
   footer.appendChild(panel);
 }
 
+// Shows a dismissible upgrade overlay when a non-Pro user clicks the cloud
+// sync button. Reuses the same pro-panel classes and buttons as the footer promo.
+function _showProUpgradeOverlay() {
+  if (document.querySelector('.pro-upgrade-overlay')) return;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'pro-upgrade-overlay';
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+
+  const panel = document.createElement('div');
+  panel.className = 'pro-panel pro-upgrade-overlay-panel';
+
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'pro-upgrade-overlay-close';
+  closeBtn.textContent = '×';
+  closeBtn.addEventListener('click', () => overlay.remove());
+  panel.appendChild(closeBtn);
+
+  const header = document.createElement('div');
+  header.className = 'pro-panel-header';
+  const badge = document.createElement('span');
+  badge.className = 'pro-badge';
+  badge.textContent = 'PRO';
+  const title = document.createElement('span');
+  title.className = 'pro-panel-title';
+  title.textContent = 'Tab Groups Pro';
+  header.appendChild(badge);
+  header.appendChild(title);
+  panel.appendChild(header);
+
+  const sub = document.createElement('p');
+  sub.className = 'pro-panel-sub';
+  sub.textContent = 'Sync your workspaces across devices with cloud backup.';
+  panel.appendChild(sub);
+
+  const buttons = document.createElement('div');
+  buttons.className = 'pro-panel-buttons';
+
+  const annualBtn = document.createElement('button');
+  annualBtn.className = 'pro-upgrade-btn';
+  annualBtn.textContent = 'Annual';
+  annualBtn.addEventListener('click', () => { chrome.tabs.create({ url: getAnnualUrl() }); overlay.remove(); });
+
+  const lifetimeBtn = document.createElement('button');
+  lifetimeBtn.className = 'pro-upgrade-btn pro-upgrade-btn--lifetime';
+  lifetimeBtn.textContent = 'Lifetime';
+  lifetimeBtn.addEventListener('click', () => { chrome.tabs.create({ url: getLifetimeUrl() }); overlay.remove(); });
+
+  const licenseBtn = document.createElement('button');
+  licenseBtn.className = 'pro-license-btn';
+  licenseBtn.textContent = 'Enter License';
+  licenseBtn.addEventListener('click', () => {
+    overlay.remove();
+    footerLicenseInputVisible = true;
+    renderFooter();
+    document.getElementById('footer')?.scrollIntoView({ behavior: 'smooth' });
+  });
+
+  buttons.appendChild(annualBtn);
+  buttons.appendChild(lifetimeBtn);
+  buttons.appendChild(licenseBtn);
+  panel.appendChild(buttons);
+  overlay.appendChild(panel);
+  document.getElementById('root').appendChild(overlay);
+}
+
 function _renderPromoFooter(panel) {
   const header = document.createElement('div');
   header.className = 'pro-panel-header';
@@ -1813,7 +1879,7 @@ function wireUI() {
       if (canUseFeature(FEATURES.CLOUD_SYNC)) {
         await doCloudSync();
       } else {
-        showStatus('Cloud sync is a Pro feature — activate a license to enable it.');
+        _showProUpgradeOverlay();
       }
     });
     $('search')?.addEventListener('input', applySearchFilter);
