@@ -9,25 +9,6 @@ const SUPABASE_ANON_KEY = 'sb_publishable_cG9XqANitUG8EzYDY38Uvg_akamGLyj';
 // across service worker restarts.
 let _sbSession = null; // { access_token, refresh_token, user_id, expires_at }
 
-/* ---------------- Credential derivation ---------------- */
-
-// Derives a stable email + password pair from the license key using SHA-256.
-// The raw key never leaves the device — only the hash is sent to Supabase.
-async function _deriveCredentials(licenseKey) {
-  const enc = new TextEncoder();
-  const toHex = buf => [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
-
-  const [emailBuf, pwBuf] = await Promise.all([
-    crypto.subtle.digest('SHA-256', enc.encode('tgw-email:' + licenseKey)),
-    crypto.subtle.digest('SHA-256', enc.encode('tgw-pwd:'   + licenseKey))
-  ]);
-
-  return {
-    email:    toHex(emailBuf).slice(0, 40) + '@tabgroups-sync.app',
-    password: toHex(pwBuf)
-  };
-}
-
 /* ---------------- Session management ---------------- */
 
 async function _loadSession() {
@@ -83,59 +64,29 @@ async function _getValidSession() {
 
 /* ---------------- Auth ---------------- */
 
-// Signs in using credentials derived from the license key.
-// Creates a Supabase account on first use (sign-up fallback).
-// Requires "Confirm email" to be OFF in Supabase → Auth → Providers → Email.
+// Exchanges a license key for Supabase session tokens via an Edge Function.
+// The Edge Function uses the admin API server-side, avoiding email format issues
+// and keeping the service role key out of the extension.
 async function supabaseSignIn(licenseKey) { // eslint-disable-line no-unused-vars
-  const { email, password } = await _deriveCredentials(licenseKey);
-
-  const authHeaders = { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY };
-
   try {
-    // Attempt sign-in first.
-    const signInRes = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
-      method: 'POST', headers: authHeaders,
-      body: JSON.stringify({ email, password })
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/auth-with-license`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY },
+      body:    JSON.stringify({ license_key: licenseKey })
     });
-    const signInJson = await signInRes.json();
+    const json = await res.json();
 
-    if (signInRes.ok && signInJson.access_token) {
-      await _saveSession({
-        access_token:  signInJson.access_token,
-        refresh_token: signInJson.refresh_token,
-        user_id:       signInJson.user?.id,
-        expires_at:    Date.now() + (signInJson.expires_in || 3600) * 1000
-      });
-      return { ok: true };
+    if (!res.ok || !json.access_token) {
+      return { ok: false, error: json.error || 'Authentication failed.' };
     }
 
-    // 400 = account doesn't exist yet — sign up.
-    if (signInRes.status === 400) {
-      const signUpRes = await fetch(`${SUPABASE_URL}/auth/v1/signup`, {
-        method: 'POST', headers: authHeaders,
-        body: JSON.stringify({ email, password })
-      });
-      const signUpJson = await signUpRes.json();
-
-      if (signUpRes.ok && signUpJson.access_token) {
-        await _saveSession({
-          access_token:  signUpJson.access_token,
-          refresh_token: signUpJson.refresh_token,
-          user_id:       signUpJson.user?.id,
-          expires_at:    Date.now() + (signUpJson.expires_in || 3600) * 1000
-        });
-        return { ok: true };
-      }
-
-      // Sign-up returned a user but no token — email confirmation is likely on.
-      if (signUpRes.ok && signUpJson.id) {
-        return { ok: false, error: 'Email confirmation is enabled in Supabase — please disable it under Auth → Providers → Email.' };
-      }
-
-      return { ok: false, error: signUpJson.msg || signUpJson.error_description || 'Account creation failed.' };
-    }
-
-    return { ok: false, error: signInJson.error_description || signInJson.msg || 'Authentication failed.' };
+    await _saveSession({
+      access_token:  json.access_token,
+      refresh_token: json.refresh_token,
+      user_id:       json.user_id,
+      expires_at:    Date.now() + (json.expires_in || 3600) * 1000
+    });
+    return { ok: true };
 
   } catch (e) {
     console.error('supabase: sign-in error', e);
