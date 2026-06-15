@@ -1298,25 +1298,19 @@ async function doCloudSync() {
   try {
     console.log('[SYNC] doCloudSync started — activeWorkspaceIdCache:', activeWorkspaceIdCache);
 
-    if (activeWorkspaceIdCache) {
-      await saveWorkspaceNow(expandedGroupIds, allOpenState, sidebarWindowId);
-      const savedWs = await getWorkspace(activeWorkspaceIdCache);
-      console.log('[SYNC] saved workspace before push — updatedAt:', savedWs?.updatedAt, 'groups:', (savedWs?.groups || []).map(g => g.name || '(unnamed)'));
-      await pushWorkspaceNow(activeWorkspaceIdCache);
-      console.log('[SYNC] push complete');
-    }
-
     const currentWsId = activeWorkspaceIdCache;
     const prePullTs   = currentWsId ? (workspacesCache[currentWsId]?.updatedAt || 0) : 0;
     console.log('[SYNC] pre-pull updatedAt for active workspace:', prePullTs);
 
+    // Step 1: Pull remote changes first — before we touch anything locally.
+    // Pulling first ensures we never overwrite another device's newer data with
+    // a push that uses Date.now() as its timestamp.
     await pullAndMergeFromCloud();
     console.log('[SYNC] pull complete');
 
-    _lastSyncedAt = Date.now();
-    await chrome.storage.local.set({ _lastSyncedAt });
     await refreshWorkspacesCache();
 
+    // Step 2: Apply any remote changes to the live Chrome window.
     if (currentWsId) {
       const postPullTs = workspacesCache[currentWsId]?.updatedAt || 0;
       console.log('[SYNC] post-pull updatedAt for active workspace:', postPullTs, '— changed:', postPullTs > prePullTs);
@@ -1326,6 +1320,19 @@ async function doCloudSync() {
       }
     }
 
+    // Step 3: Save the current Chrome state — which now reflects both local
+    // changes AND any groups just added from the pull — then push to Supabase.
+    // This merged state becomes the new authoritative version in the cloud.
+    if (currentWsId) {
+      await saveWorkspaceNow(expandedGroupIds, allOpenState, sidebarWindowId);
+      const savedWs = await getWorkspace(currentWsId);
+      console.log('[SYNC] merged state — updatedAt:', savedWs?.updatedAt, 'groups:', (savedWs?.groups || []).map(g => g.name || '(unnamed)'));
+      await pushWorkspaceNow(currentWsId);
+      console.log('[SYNC] push complete');
+    }
+
+    _lastSyncedAt = Date.now();
+    await chrome.storage.local.set({ _lastSyncedAt });
     renderWorkspaceSwitcher();
     showSuccessStatus('Cloud sync successful ✓', 3000);
   } catch (e) {
