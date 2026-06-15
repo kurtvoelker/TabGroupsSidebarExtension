@@ -1,5 +1,5 @@
 // background.js — service worker
-importScripts('permissions.js', 'storage.js', 'workspace.js');
+importScripts('supabase.js', 'permissions.js', 'storage.js', 'workspace.js');
 
 const COMMAND_OPEN = 'open_tab_groups_sidebar';
 
@@ -37,6 +37,11 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 // Fired when Chrome itself starts (full quit → relaunch).
 chrome.runtime.onStartup.addListener(() => {
   chrome.storage.local.remove('activeWorkspaceId');
+
+  // Pull any workspace changes from Supabase made on other devices.
+  initPermissions()
+    .then(() => pullAndMergeFromCloud())
+    .catch(e => console.warn('background: cloud pull on startup failed', e));
 });
 
 // Fired whenever any window closes.

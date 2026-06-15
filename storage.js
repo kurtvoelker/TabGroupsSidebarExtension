@@ -159,6 +159,11 @@ async function saveWorkspace(id, workspaceData) {
     }
     throw e;
   }
+
+  // Mirror to Supabase for Pro users. Fire-and-forget — local save already succeeded.
+  if (typeof pushWorkspace === 'function' && canUseFeature(FEATURES.CLOUD_SYNC)) {
+    pushWorkspace(id, updated).catch(e => console.warn('supabase: push after save failed', e));
+  }
 }
 
 // Pro-gated by the caller via canUseFeature(FEATURES.MULTIPLE_WORKSPACES).
@@ -196,6 +201,10 @@ async function deleteWorkspace(id) {
 
   await storageSet({ [WS_INDEX_KEY]: ids });
   await storageRemove(id);
+
+  if (typeof deleteWorkspaceRemote === 'function' && canUseFeature(FEATURES.CLOUD_SYNC)) {
+    deleteWorkspaceRemote(id).catch(e => console.warn('supabase: remote delete failed', e));
+  }
 }
 
 async function renameWorkspace(id, name) {
@@ -204,6 +213,40 @@ async function renameWorkspace(id, name) {
   data[id].name = name.trim() || 'Untitled';
   data[id].updatedAt = Date.now();
   await storageSet({ [id]: data[id] });
+}
+
+/* ---------------- Cloud sync ---------------- */
+
+// Pulls all workspaces from Supabase and writes any that are newer than the
+// local copy. Does not delete local workspaces missing from the cloud.
+async function pullAndMergeFromCloud() { // eslint-disable-line no-unused-vars
+  if (typeof pullAllWorkspaces !== 'function') return;
+  if (!canUseFeature(FEATURES.CLOUD_SYNC)) return;
+
+  const rows = await pullAllWorkspaces();
+  if (!rows || rows.length === 0) return;
+
+  for (const row of rows) {
+    const { workspace_key: key, data } = row;
+    if (!key || !data) continue;
+
+    const localResult = await storageGet([key]);
+    const local = localResult[key];
+    const remoteTs = data.updatedAt || 0;
+    const localTs  = local?.updatedAt || 0;
+
+    if (remoteTs > localTs) {
+      const indexResult = await storageGet([WS_INDEX_KEY]);
+      const ids = indexResult[WS_INDEX_KEY] || [];
+      const writes = { [key]: { ...data, id: key } };
+      if (!ids.includes(key)) writes[WS_INDEX_KEY] = [...ids, key];
+      try {
+        await storageSet(writes);
+      } catch (e) {
+        console.warn('pullAndMergeFromCloud: failed to write', key, e);
+      }
+    }
+  }
 }
 
 /* ---------------- Quota ---------------- */

@@ -1321,8 +1321,17 @@ function _renderLicenseInputFooter(panel) {
 
     const result = await activateLicense(key);
     if (result.ok) {
+      hint.textContent = 'Syncing…';
+      const syncResult = await supabaseSignIn(key);
+      if (syncResult.ok) {
+        await pullAndMergeFromCloud();
+        await refreshWorkspacesCache();
+        renderWorkspaceSwitcher();
+      } else {
+        console.warn('supabase: sign-in after activation failed', syncResult.error);
+      }
       footerLicenseInputVisible = false;
-renderFooter();
+      renderFooter();
     } else {
       confirmBtn.disabled = false;
       hint.textContent = result.error || 'Invalid key. Please try again.';
@@ -1364,6 +1373,7 @@ function _renderProActiveFooter(panel) {
   deactivateBtn.addEventListener('click', async () => {
     if (!confirm('Deactivate your Pro license on this device?')) return;
     await deactivateLicense();
+    await supabaseSignOut();
     renderFooter();
   });
 
@@ -1481,6 +1491,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   renderWorkspaceSwitcher();
   renderFooter();
   loadAndRender();
+
+  // Pull any changes from Supabase in the background — don't block the UI.
+  if (canUseFeature(FEATURES.CLOUD_SYNC)) {
+    pullAndMergeFromCloud()
+      .then(() => refreshWorkspacesCache())
+      .then(() => renderWorkspaceSwitcher())
+      .catch(e => console.warn('sidebar: cloud pull on startup failed', e));
+  }
 
   try {
     if (chrome && chrome.tabs) {

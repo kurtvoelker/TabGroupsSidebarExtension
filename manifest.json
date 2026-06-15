@@ -10,7 +10,8 @@
     "sidePanel"
   ],
   "host_permissions": [
-    "https://api.lemonsqueezy.com/"
+    "https://api.lemonsqueezy.com/",
+    "https://hcymacchyhwqohmzlfgm.supabase.co/"
   ],
 "icons": {
     "16": "icons/icon16.png",
