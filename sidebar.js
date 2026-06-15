@@ -817,7 +817,7 @@ function renderOnboarding(bar) {
       if (isFresh) {
         await doStartFresh(newWorkspace);
       } else {
-        await doSwitchWorkspace(newWorkspace.id);
+        await adoptCurrentTabsIntoWorkspace(newWorkspace.id);
         showSuccessStatus(`✓ Current tabs saved as "${newWorkspace.name}"`);
       }
     };
@@ -1111,10 +1111,9 @@ function renderWorkspaceSwitcher() {
         wsCreateFormVisible = false;
 
         if (!activeWorkspaceIdCache) {
-          // Window is unassigned — immediately adopt the new workspace so the
-          // current tabs are saved into it and it becomes active. Same as if the
-          // user had clicked the new workspace manually right after creating it.
-          await doSwitchWorkspace(newWorkspace.id);
+          // Window is unassigned — capture current tabs into the new workspace
+          // and assign it to this window, without opening a new window.
+          await adoptCurrentTabsIntoWorkspace(newWorkspace.id);
           showSuccessStatus(`✓ Current tabs saved as "${newWorkspace.name}"`);
         } else {
           // Window already has a workspace — just add to the list, don't switch.
@@ -1199,6 +1198,19 @@ async function doSwitchWorkspace(targetId) {
     console.error('doSwitchWorkspace failed:', e);
     showStatus('Failed to switch workspace — see console.');
   }
+}
+
+// Captures the current window's tabs and saves them into workspaceId, then
+// assigns that workspace to this window. Used when the user explicitly says
+// "save my current tabs as this workspace" — onboarding and workspace creation.
+// Does not open a new window or close any tabs.
+async function adoptCurrentTabsIntoWorkspace(workspaceId) {
+  const state = await captureCurrentState(expandedGroupIds, allOpenState, sidebarWindowId);
+  await saveWorkspace(workspaceId, state);
+  await setWindowWorkspaceId(sidebarWindowId, workspaceId);
+  await refreshWorkspacesCache();
+  renderWorkspaceSwitcher();
+  await loadAndRender();
 }
 
 /* ---------------- Footer / Pro panel ---------------- */
