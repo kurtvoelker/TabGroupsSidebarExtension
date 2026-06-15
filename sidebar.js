@@ -1261,7 +1261,8 @@ function _isSyncableUrl(url) {
 }
 
 // Compares the synced workspace snapshot against the live Chrome window and
-// additively applies anything that's missing. Handles three cases:
+// additively applies anything that's missing. Handles four cases:
+//   0. New pinned tabs
 //   1. Whole new named groups
 //   2. New tabs inside an existing named group
 //   3. New ungrouped tabs
@@ -1285,10 +1286,10 @@ async function _applyIncrementalGroupSync(updatedWorkspace) {
       chromeGroupsByName.set(name, { id: g.id, urls });
     }
 
-    // Set of normalized URLs for all current ungrouped (non-pinned) tabs
-    const currentUngroupedUrls = new Set(
+    // Set of normalized URLs for all currently pinned tabs
+    const currentPinnedUrls = new Set(
       existingTabs
-        .filter(t => !t.pinned && t.groupId < 0)
+        .filter(t => t.pinned)
         .map(t => _normalizeUrl(t.url))
         .filter(url => _isSyncableUrl(url))
     );
@@ -1298,9 +1299,23 @@ async function _applyIncrementalGroupSync(updatedWorkspace) {
 
     console.log('[SYNC] _applyIncrementalGroupSync — Chrome groups:', [...chromeGroupsByName.keys()]);
     console.log('[SYNC] _applyIncrementalGroupSync — synced groups:', (updatedWorkspace.groups || []).map(g => g.name || '(unnamed)'));
-    console.log('[SYNC] _applyIncrementalGroupSync — synced ungrouped tabs:', (updatedWorkspace.ungroupedTabs || []).map(t => t.url));
+    console.log('[SYNC] _applyIncrementalGroupSync — synced pinned:', (updatedWorkspace.pinnedTabs || []).map(t => t.url));
+    console.log('[SYNC] _applyIncrementalGroupSync — synced ungrouped:', (updatedWorkspace.ungroupedTabs || []).map(t => t.url));
 
     let added = false;
+
+    // Case 0: pinned tabs — open any not already pinned in this window.
+    // Opened first so they anchor correctly to the left of the tab strip.
+    const newPinned = (updatedWorkspace.pinnedTabs || []).filter(t =>
+      _isSyncableUrl(t.url) && !currentPinnedUrls.has(_normalizeUrl(t.url))
+    );
+    console.log('[SYNC] new pinned tabs to add:', newPinned.length);
+    for (const tabData of newPinned) {
+      try {
+        await chrome.tabs.create({ url: tabData.url, windowId: sidebarWindowId, pinned: true, active: false });
+        added = true;
+      } catch (e) { console.warn('[SYNC] could not open pinned tab', tabData.url, e); }
+    }
 
     // Cases 1 & 2: named groups
     for (const group of (updatedWorkspace.groups || [])) {
@@ -1374,8 +1389,144 @@ async function _applyIncrementalGroupSync(updatedWorkspace) {
   }
 }
 
+function _getDomain(url) {
+  try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return url; }
+}
+
+// Compares the current Chrome window against a remote workspace snapshot and
+// returns a structured description of what would be closed. Returns null if
+// nothing would be removed.
+async function _computeRemovals(remoteWorkspace) {
+  if (!sidebarWindowId || !remoteWorkspace) return null;
+
+  const [existingChromeGroups, existingTabs] = await Promise.all([
+    chrome.tabGroups.query({ windowId: sidebarWindowId }),
+    chrome.tabs.query({ windowId: sidebarWindowId })
+  ]);
+
+  const remoteGroupNames = new Set(
+    (remoteWorkspace.groups || []).map(g => (g.name || '').toLowerCase()).filter(Boolean)
+  );
+  const remoteGroupTabUrls = new Map();
+  for (const g of (remoteWorkspace.groups || [])) {
+    const name = (g.name || '').toLowerCase();
+    if (!name) continue;
+    remoteGroupTabUrls.set(name, new Set((g.tabs || []).map(t => _normalizeUrl(t.url))));
+  }
+  const remotePinnedUrls    = new Set((remoteWorkspace.pinnedTabs    || []).map(t => _normalizeUrl(t.url)));
+  const remoteUngroupedUrls = new Set((remoteWorkspace.ungroupedTabs || []).map(t => _normalizeUrl(t.url)));
+
+  const removals = { groups: [], groupTabs: [], ungrouped: [], pinned: [] };
+
+  for (const g of existingChromeGroups) {
+    const name = (g.title || '').toLowerCase();
+    if (!name) continue;
+    const groupTabs = existingTabs.filter(t => t.groupId === g.id);
+    if (!remoteGroupNames.has(name)) {
+      removals.groups.push({ name: g.title, tabCount: groupTabs.length, tabIds: groupTabs.map(t => t.id) });
+    } else {
+      const remoteUrls = remoteGroupTabUrls.get(name) || new Set();
+      for (const tab of groupTabs) {
+        if (_isSyncableUrl(tab.url) && !remoteUrls.has(_normalizeUrl(tab.url))) {
+          removals.groupTabs.push({ groupName: g.title, url: tab.url, tabId: tab.id });
+        }
+      }
+    }
+  }
+  for (const tab of existingTabs.filter(t => t.pinned)) {
+    if (_isSyncableUrl(tab.url) && !remotePinnedUrls.has(_normalizeUrl(tab.url))) {
+      removals.pinned.push({ url: tab.url, tabId: tab.id });
+    }
+  }
+  for (const tab of existingTabs.filter(t => !t.pinned && t.groupId < 0)) {
+    if (_isSyncableUrl(tab.url) && !remoteUngroupedUrls.has(_normalizeUrl(tab.url))) {
+      removals.ungrouped.push({ url: tab.url, tabId: tab.id });
+    }
+  }
+
+  const hasAny = removals.groups.length || removals.groupTabs.length ||
+                 removals.ungrouped.length || removals.pinned.length;
+  return hasAny ? removals : null;
+}
+
+// Closes all tabs identified as removals.
+async function _applyRemovals(removals) {
+  const ids = [
+    ...removals.groups.flatMap(g => g.tabIds),
+    ...removals.groupTabs.map(t => t.tabId),
+    ...removals.ungrouped.map(t => t.tabId),
+    ...removals.pinned.map(t => t.tabId)
+  ];
+  if (ids.length > 0) {
+    try { await chrome.tabs.remove(ids); }
+    catch (e) { console.warn('[SYNC] _applyRemovals: could not close some tabs', e); }
+  }
+}
+
+// Shows an inline confirmation panel listing what would be closed on this
+// browser to match the remote workspace. Returns a Promise<bool> — true means
+// the user accepted the removals, false means keep current tabs.
+function _showRemovalConfirmation(removals) {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.className = 'sync-confirm-overlay';
+
+    const panel = document.createElement('div');
+    panel.className = 'sync-confirm-panel';
+
+    const title = document.createElement('p');
+    title.className = 'sync-confirm-title';
+    title.textContent = 'Syncing will close these from this browser:';
+    panel.appendChild(title);
+
+    const list = document.createElement('ul');
+    list.className = 'sync-confirm-list';
+
+    for (const g of (removals.groups || [])) {
+      const li = document.createElement('li');
+      li.textContent = `Group "${g.name}" — ${g.tabCount} tab${g.tabCount !== 1 ? 's' : ''}`;
+      list.appendChild(li);
+    }
+    for (const t of (removals.groupTabs || [])) {
+      const li = document.createElement('li');
+      li.textContent = `In "${t.groupName}" — ${_getDomain(t.url)}`;
+      list.appendChild(li);
+    }
+    for (const t of (removals.ungrouped || [])) {
+      const li = document.createElement('li');
+      li.textContent = `Ungrouped — ${_getDomain(t.url)}`;
+      list.appendChild(li);
+    }
+    for (const t of (removals.pinned || [])) {
+      const li = document.createElement('li');
+      li.textContent = `Pinned — ${_getDomain(t.url)}`;
+      list.appendChild(li);
+    }
+    panel.appendChild(list);
+
+    const buttons = document.createElement('div');
+    buttons.className = 'sync-confirm-buttons';
+
+    const skipBtn = document.createElement('button');
+    skipBtn.className = 'sync-confirm-skip';
+    skipBtn.textContent = 'Keep my tabs';
+    skipBtn.addEventListener('click', () => { overlay.remove(); resolve(false); });
+
+    const applyBtn = document.createElement('button');
+    applyBtn.className = 'sync-confirm-apply';
+    applyBtn.textContent = 'Apply full sync';
+    applyBtn.addEventListener('click', () => { overlay.remove(); resolve(true); });
+
+    buttons.appendChild(skipBtn);
+    buttons.appendChild(applyBtn);
+    panel.appendChild(buttons);
+    overlay.appendChild(panel);
+    document.getElementById('root').appendChild(overlay);
+  });
+}
+
 // Pulls from Supabase, merges local, updates the last-synced timestamp,
-// and shows user-facing feedback. Called by the refresh button and on startup.
+// and shows user-facing feedback. Called by the cloud sync button and on startup.
 async function doCloudSync() {
   try {
     console.log('[SYNC] doCloudSync started — activeWorkspaceIdCache:', activeWorkspaceIdCache);
@@ -1384,27 +1535,39 @@ async function doCloudSync() {
     const prePullTs   = currentWsId ? (workspacesCache[currentWsId]?.updatedAt || 0) : 0;
     console.log('[SYNC] pre-pull updatedAt for active workspace:', prePullTs);
 
-    // Step 1: Pull remote changes first — before we touch anything locally.
-    // Pulling first ensures we never overwrite another device's newer data with
-    // a push that uses Date.now() as its timestamp.
+    // Step 1: Pull first — never overwrite another device's newer data.
     await pullAndMergeFromCloud();
     console.log('[SYNC] pull complete');
-
     await refreshWorkspacesCache();
 
-    // Step 2: Apply any remote changes to the live Chrome window.
+    // Step 2: Apply remote changes to the live Chrome window.
     if (currentWsId) {
       const postPullTs = workspacesCache[currentWsId]?.updatedAt || 0;
-      console.log('[SYNC] post-pull updatedAt for active workspace:', postPullTs, '— changed:', postPullTs > prePullTs);
+      console.log('[SYNC] post-pull updatedAt:', postPullTs, '— changed:', postPullTs > prePullTs);
+
       if (postPullTs > prePullTs) {
-        const applied = await _applyIncrementalGroupSync(workspacesCache[currentWsId]);
-        if (applied) await loadAndRender();
+        const remoteWs = workspacesCache[currentWsId];
+
+        // Check for removals and confirm before closing anything.
+        const removals = await _computeRemovals(remoteWs);
+        if (removals) {
+          console.log('[SYNC] removals detected', removals);
+          const confirmed = await _showRemovalConfirmation(removals);
+          if (confirmed) {
+            await _applyRemovals(removals);
+            console.log('[SYNC] removals applied');
+          } else {
+            console.log('[SYNC] user kept current tabs');
+          }
+        }
+
+        // Always apply additions regardless of whether removals were accepted.
+        const added = await _applyIncrementalGroupSync(remoteWs);
+        if (added || removals) await loadAndRender();
       }
     }
 
-    // Step 3: Save the current Chrome state — which now reflects both local
-    // changes AND any groups just added from the pull — then push to Supabase.
-    // This merged state becomes the new authoritative version in the cloud.
+    // Step 3: Push the merged state back to Supabase.
     if (currentWsId) {
       await saveWorkspaceNow(expandedGroupIds, allOpenState, sidebarWindowId);
       const savedWs = await getWorkspace(currentWsId);

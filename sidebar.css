@@ -527,6 +527,79 @@ body {
   white-space: nowrap;
 }
 
+/* Cloud sync removal confirmation */
+.sync-confirm-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.sync-confirm-panel {
+  background: #fff;
+  border-radius: 10px;
+  padding: 16px;
+  width: 100%;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+}
+
+.sync-confirm-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.85);
+  margin: 0 0 10px;
+}
+
+.sync-confirm-list {
+  margin: 0 0 14px;
+  padding-left: 18px;
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.65);
+  line-height: 1.7;
+}
+
+.sync-confirm-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.sync-confirm-skip {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  background: transparent;
+  font-size: 12px;
+  cursor: pointer;
+  color: rgba(0, 0, 0, 0.65);
+}
+
+.sync-confirm-apply {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: none;
+  background: #ef4444;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sync-confirm-skip:hover  { background: rgba(0, 0, 0, 0.05); }
+.sync-confirm-apply:hover { background: #dc2626; }
+
+@media (prefers-color-scheme: dark) {
+  .sync-confirm-panel      { background: #2a2a2a; }
+  .sync-confirm-title      { color: rgba(255, 255, 255, 0.9); }
+  .sync-confirm-list       { color: rgba(255, 255, 255, 0.65); }
+  .sync-confirm-skip       { border-color: rgba(255, 255, 255, 0.2); color: rgba(255, 255, 255, 0.65); }
+  .sync-confirm-skip:hover { background: rgba(255, 255, 255, 0.08); }
+}
+
 .section-label {
   margin: 0 0 4px 2px;
   font-size: 11px;
