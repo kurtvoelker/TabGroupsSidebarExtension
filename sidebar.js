@@ -1224,14 +1224,82 @@ async function adoptCurrentTabsIntoWorkspace(workspaceId) {
   await loadAndRender();
 }
 
+// After a cloud pull updates the stored workspace snapshot, add any tab groups
+// that are in the synced data but not yet open as Chrome tab groups in the
+// current window. Additive-only — never closes or modifies existing tabs.
+// Groups are matched by name (case-insensitive); unnamed groups are skipped.
+// Returns true if at least one group was added.
+async function _applyIncrementalGroupSync(updatedWorkspace) {
+  if (!sidebarWindowId || !updatedWorkspace) return false;
+  try {
+    const existingChromeGroups = await chrome.tabGroups.query({ windowId: sidebarWindowId });
+    const existingNames = new Set(
+      existingChromeGroups.map(g => (g.title || '').toLowerCase()).filter(n => n !== '')
+    );
+
+    let added = false;
+    for (const group of (updatedWorkspace.groups || [])) {
+      const groupName = (group.name || '').trim();
+      if (!groupName) continue; // skip unnamed groups — can't reliably identify them
+      if (existingNames.has(groupName.toLowerCase())) continue;
+      if (!Array.isArray(group.tabs) || group.tabs.length === 0) continue;
+
+      const tabIds = [];
+      for (const tabData of group.tabs) {
+        try {
+          const tab = await chrome.tabs.create({ url: tabData.url, windowId: sidebarWindowId, active: false });
+          tabIds.push(tab.id);
+        } catch (e) {
+          console.warn('_applyIncrementalGroupSync: could not open tab', tabData.url, e);
+        }
+      }
+
+      if (tabIds.length > 0) {
+        try {
+          const groupId = await chrome.tabs.group({ tabIds, createProperties: { windowId: sidebarWindowId } });
+          await chrome.tabGroups.update(groupId, {
+            title:     groupName,
+            color:     group.color || 'grey',
+            collapsed: group.collapsed || false
+          });
+          existingNames.add(groupName.toLowerCase());
+          added = true;
+        } catch (e) {
+          console.warn('_applyIncrementalGroupSync: could not create group', groupName, e);
+        }
+      }
+    }
+    return added;
+  } catch (e) {
+    console.error('_applyIncrementalGroupSync failed:', e);
+    return false;
+  }
+}
+
 // Pulls from Supabase, merges local, updates the last-synced timestamp,
 // and shows user-facing feedback. Called by the refresh button and on startup.
 async function doCloudSync() {
   try {
+    // Snapshot the current workspace's updatedAt before pulling so we can
+    // detect whether the pull brought in newer data for the active workspace.
+    const currentWsId = activeWorkspaceIdCache;
+    const prePullTs   = currentWsId ? (workspacesCache[currentWsId]?.updatedAt || 0) : 0;
+
     await pullAndMergeFromCloud();
     _lastSyncedAt = Date.now();
     await chrome.storage.local.set({ _lastSyncedAt });
     await refreshWorkspacesCache();
+
+    // If the pull updated the currently active workspace, push the new groups
+    // into the live Chrome window so the change is immediately visible.
+    if (currentWsId) {
+      const postPullTs = workspacesCache[currentWsId]?.updatedAt || 0;
+      if (postPullTs > prePullTs) {
+        const applied = await _applyIncrementalGroupSync(workspacesCache[currentWsId]);
+        if (applied) await loadAndRender();
+      }
+    }
+
     renderWorkspaceSwitcher();
     showSuccessStatus('Cloud sync successful ✓', 3000);
   } catch (e) {
