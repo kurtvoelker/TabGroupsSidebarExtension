@@ -224,6 +224,19 @@ async function renameWorkspace(id, name) {
 
 /* ---------------- Cloud sync ---------------- */
 
+// Reads a workspace from local storage and pushes it to Supabase immediately.
+// Awaitable — callers can use this to guarantee the push completes before continuing.
+// Applies the same named-groups filter as the auto-save push in saveWorkspace().
+async function pushWorkspaceNow(id) { // eslint-disable-line no-unused-vars
+  if (typeof pushWorkspace !== 'function') return;
+  if (!canUseFeature(FEATURES.CLOUD_SYNC)) return;
+  const ws = await getWorkspace(id);
+  if (!ws) return;
+  const namedOnly = (ws.groups || []).filter(g => g.name && g.name.trim());
+  const payload = namedOnly.length === (ws.groups?.length || 0) ? ws : { ...ws, groups: namedOnly };
+  await pushWorkspace(id, payload);
+}
+
 // Pulls all workspaces from Supabase and writes any that are newer than the
 // local copy. Does not delete local workspaces missing from the cloud.
 async function pullAndMergeFromCloud() { // eslint-disable-line no-unused-vars

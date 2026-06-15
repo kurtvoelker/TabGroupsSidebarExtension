@@ -1201,6 +1201,14 @@ document.addEventListener('click', (e) => {
 
 async function doSwitchWorkspace(targetId) {
   try {
+    // Pull from Supabase before switching so that any changes made on other
+    // devices are reflected in the workspace being restored. Failure is
+    // non-fatal — we fall back to whatever is in local storage.
+    if (canUseFeature(FEATURES.CLOUD_SYNC)) {
+      await pullAndMergeFromCloud().catch(e =>
+        console.warn('doSwitchWorkspace: cloud pull failed, using local data', e)
+      );
+    }
     await switchWorkspace(targetId, expandedGroupIds, allOpenState, sidebarWindowId);
     await refreshWorkspacesCache();
     renderWorkspaceSwitcher();
@@ -1280,6 +1288,15 @@ async function _applyIncrementalGroupSync(updatedWorkspace) {
 // and shows user-facing feedback. Called by the refresh button and on startup.
 async function doCloudSync() {
   try {
+    // Force-save and push current workspace state BEFORE pulling.
+    // This covers the race where the 500ms auto-save debounce hasn't fired yet
+    // when the user clicks sync — without this, recent changes would not be in
+    // Supabase before we pull, so the push and pull would both see stale data.
+    if (activeWorkspaceIdCache) {
+      await saveWorkspaceNow(expandedGroupIds, allOpenState, sidebarWindowId);
+      await pushWorkspaceNow(activeWorkspaceIdCache);
+    }
+
     // Snapshot the current workspace's updatedAt before pulling so we can
     // detect whether the pull brought in newer data for the active workspace.
     const currentWsId = activeWorkspaceIdCache;
