@@ -34,6 +34,7 @@ let allOpenState = false;
 let expandedGroupIds = new Set();
 let draggedTabData = null;
 let _saveDebounceTimer = null;
+let _lastSyncedAt = null; // ms timestamp of last successful cloud sync
 
 // Per-window identity — set during init, used for all workspace operations.
 let sidebarWindowId = null;
@@ -892,6 +893,16 @@ function renderWorkspaceSwitcher() {
   });
 
   headerRow.appendChild(label);
+
+  if (canUseFeature(FEATURES.CLOUD_SYNC) && _lastSyncedAt) {
+    const syncedEl = document.createElement('span');
+    syncedEl.className = 'ws-last-synced';
+    const d = new Date(_lastSyncedAt);
+    syncedEl.textContent = `synced ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    syncedEl.title = `Last synced: ${d.toLocaleString()}`;
+    headerRow.appendChild(syncedEl);
+  }
+
   headerRow.appendChild(addBtn);
   bar.appendChild(headerRow);
 
@@ -1213,6 +1224,22 @@ async function adoptCurrentTabsIntoWorkspace(workspaceId) {
   await loadAndRender();
 }
 
+// Pulls from Supabase, merges local, updates the last-synced timestamp,
+// and shows user-facing feedback. Called by the refresh button and on startup.
+async function doCloudSync() {
+  try {
+    await pullAndMergeFromCloud();
+    _lastSyncedAt = Date.now();
+    await chrome.storage.local.set({ _lastSyncedAt });
+    await refreshWorkspacesCache();
+    renderWorkspaceSwitcher();
+    showSuccessStatus('Cloud sync successful ✓', 3000);
+  } catch (e) {
+    console.error('doCloudSync failed:', e);
+    showStatus('Cloud sync failed — see console.');
+  }
+}
+
 /* ---------------- Footer / Pro panel ---------------- */
 
 function renderFooter() {
@@ -1324,9 +1351,7 @@ function _renderLicenseInputFooter(panel) {
       hint.textContent = 'Syncing…';
       const syncResult = await supabaseSignIn(key);
       if (syncResult.ok) {
-        await pullAndMergeFromCloud();
-        await refreshWorkspacesCache();
-        renderWorkspaceSwitcher();
+        await doCloudSync();
       } else {
         console.warn('supabase: sign-in after activation failed', syncResult.error);
       }
@@ -1432,6 +1457,9 @@ function wireUI() {
       await refreshWorkspacesCache();
       renderWorkspaceSwitcher();
       await loadAndRender();
+      if (canUseFeature(FEATURES.CLOUD_SYNC)) {
+        await doCloudSync();
+      }
     });
     $('search')?.addEventListener('input', applySearchFilter);
 
@@ -1482,6 +1510,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   try {
     await initWorkspaces();
     await refreshWorkspacesCache();
+    const stored = await chrome.storage.local.get('_lastSyncedAt');
+    _lastSyncedAt = stored._lastSyncedAt || null;
   } catch (e) {
     console.error('initWorkspaces failed:', e);
   }
@@ -1494,10 +1524,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Pull any changes from Supabase in the background — don't block the UI.
   if (canUseFeature(FEATURES.CLOUD_SYNC)) {
-    pullAndMergeFromCloud()
-      .then(() => refreshWorkspacesCache())
-      .then(() => renderWorkspaceSwitcher())
-      .catch(e => console.warn('sidebar: cloud pull on startup failed', e));
+    doCloudSync().catch(e => console.warn('sidebar: cloud sync on startup failed', e));
   }
 
   try {
