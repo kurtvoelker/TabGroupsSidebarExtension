@@ -76,6 +76,7 @@ body {
 }
 
 .search-toolbar button svg { width: 17px; height: 17px; }
+#cloudSyncBtn svg { width: 22px; height: 22px; }
 .search-toolbar button:hover { background: rgba(0,0,0,0.06); color: rgba(0,0,0,0.8); }
 .search-toolbar button:active { background: rgba(0,0,0,0.1); }
 .search-toolbar button.active { color: rgba(0,0,0,0.85); }

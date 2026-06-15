@@ -1239,52 +1239,134 @@ async function adoptCurrentTabsIntoWorkspace(workspaceId) {
 // current window. Additive-only — never closes or modifies existing tabs.
 // Groups are matched by name (case-insensitive); unnamed groups are skipped.
 // Returns true if at least one group was added.
+// Normalize a URL for comparison — strips trailing slash from path so
+// "example.com/" and "example.com" are treated as the same tab.
+function _normalizeUrl(url) {
+  if (!url) return '';
+  try {
+    const u = new URL(url);
+    return u.origin.toLowerCase() + u.pathname.replace(/\/$/, '') + u.search + u.hash;
+  } catch {
+    return url.toLowerCase().trim();
+  }
+}
+
+// Returns false for chrome:// and other internal URLs that can't be opened
+// by an extension and shouldn't be synced.
+function _isSyncableUrl(url) {
+  if (!url) return false;
+  if (url.startsWith('chrome://') || url.startsWith('chrome-extension://')) return false;
+  if (url.startsWith('edge://') || url.startsWith('about:')) return false;
+  return true;
+}
+
+// Compares the synced workspace snapshot against the live Chrome window and
+// additively applies anything that's missing. Handles three cases:
+//   1. Whole new named groups
+//   2. New tabs inside an existing named group
+//   3. New ungrouped tabs
+// Never closes or removes anything. Returns true if anything was added.
 async function _applyIncrementalGroupSync(updatedWorkspace) {
   if (!sidebarWindowId || !updatedWorkspace) return false;
   try {
-    const existingChromeGroups = await chrome.tabGroups.query({ windowId: sidebarWindowId });
-    const existingNames = new Set(
-      existingChromeGroups.map(g => (g.title || '').toLowerCase()).filter(n => n !== '')
+    const [existingChromeGroups, existingTabs] = await Promise.all([
+      chrome.tabGroups.query({ windowId: sidebarWindowId }),
+      chrome.tabs.query({ windowId: sidebarWindowId })
+    ]);
+
+    // Map group name (lowercase) → { chromeGroupId, Set of normalized tab URLs }
+    const chromeGroupsByName = new Map();
+    for (const g of existingChromeGroups) {
+      const name = (g.title || '').toLowerCase();
+      if (!name) continue;
+      const urls = new Set(
+        existingTabs.filter(t => t.groupId === g.id).map(t => _normalizeUrl(t.url))
+      );
+      chromeGroupsByName.set(name, { id: g.id, urls });
+    }
+
+    // Set of normalized URLs for all current ungrouped (non-pinned) tabs
+    const currentUngroupedUrls = new Set(
+      existingTabs
+        .filter(t => !t.pinned && t.groupId < 0)
+        .map(t => _normalizeUrl(t.url))
+        .filter(url => _isSyncableUrl(url))
     );
 
-    console.log('[SYNC] _applyIncrementalGroupSync — existing Chrome groups:', [...existingNames]);
-    console.log('[SYNC] _applyIncrementalGroupSync — groups in synced workspace:', (updatedWorkspace.groups || []).map(g => g.name || '(unnamed)'));
+    // Also track all open URLs to avoid duplicating a tab that exists anywhere
+    const allOpenUrls = new Set(existingTabs.map(t => _normalizeUrl(t.url)));
+
+    console.log('[SYNC] _applyIncrementalGroupSync — Chrome groups:', [...chromeGroupsByName.keys()]);
+    console.log('[SYNC] _applyIncrementalGroupSync — synced groups:', (updatedWorkspace.groups || []).map(g => g.name || '(unnamed)'));
+    console.log('[SYNC] _applyIncrementalGroupSync — synced ungrouped tabs:', (updatedWorkspace.ungroupedTabs || []).map(t => t.url));
 
     let added = false;
+
+    // Cases 1 & 2: named groups
     for (const group of (updatedWorkspace.groups || [])) {
       const groupName = (group.name || '').trim();
       if (!groupName) { console.log('[SYNC] skipping unnamed group'); continue; }
-      if (existingNames.has(groupName.toLowerCase())) { console.log('[SYNC] skipping already-open group:', groupName); continue; }
-      if (!Array.isArray(group.tabs) || group.tabs.length === 0) { console.log('[SYNC] skipping empty group:', groupName); continue; }
+      if (!Array.isArray(group.tabs) || group.tabs.length === 0) continue;
 
-      console.log('[SYNC] adding group to Chrome:', groupName, '—', group.tabs.length, 'tab(s)');
-      const tabIds = [];
-      for (const tabData of group.tabs) {
-        try {
-          const tab = await chrome.tabs.create({ url: tabData.url, windowId: sidebarWindowId, active: false });
-          tabIds.push(tab.id);
-        } catch (e) {
-          console.warn('_applyIncrementalGroupSync: could not open tab', tabData.url, e);
+      const existing = chromeGroupsByName.get(groupName.toLowerCase());
+
+      if (!existing) {
+        // Case 1: entire group is new — open all its tabs and create the group
+        console.log('[SYNC] new group:', groupName, '—', group.tabs.length, 'tab(s)');
+        const tabIds = [];
+        for (const tabData of group.tabs) {
+          if (!_isSyncableUrl(tabData.url)) continue;
+          try {
+            const tab = await chrome.tabs.create({ url: tabData.url, windowId: sidebarWindowId, active: false });
+            tabIds.push(tab.id);
+          } catch (e) { console.warn('[SYNC] could not open tab', tabData.url, e); }
         }
-      }
-
-      if (tabIds.length > 0) {
-        try {
-          const groupId = await chrome.tabs.group({ tabIds, createProperties: { windowId: sidebarWindowId } });
-          await chrome.tabGroups.update(groupId, {
-            title:     groupName,
-            color:     group.color || 'grey',
-            collapsed: group.collapsed || false
-          });
-          existingNames.add(groupName.toLowerCase());
-          added = true;
-          console.log('[SYNC] group added successfully:', groupName);
-        } catch (e) {
-          console.warn('_applyIncrementalGroupSync: could not create group', groupName, e);
+        if (tabIds.length > 0) {
+          try {
+            const gid = await chrome.tabs.group({ tabIds, createProperties: { windowId: sidebarWindowId } });
+            await chrome.tabGroups.update(gid, { title: groupName, color: group.color || 'grey', collapsed: group.collapsed || false });
+            added = true;
+            console.log('[SYNC] group created:', groupName);
+          } catch (e) { console.warn('[SYNC] could not create group', groupName, e); }
+        }
+      } else {
+        // Case 2: group exists — add only tabs whose URLs aren't already in the group
+        const missingTabs = group.tabs.filter(t =>
+          _isSyncableUrl(t.url) && !existing.urls.has(_normalizeUrl(t.url))
+        );
+        console.log('[SYNC] existing group:', groupName, '—', missingTabs.length, 'missing tab(s)');
+        if (missingTabs.length > 0) {
+          const tabIds = [];
+          for (const tabData of missingTabs) {
+            try {
+              const tab = await chrome.tabs.create({ url: tabData.url, windowId: sidebarWindowId, active: false });
+              tabIds.push(tab.id);
+            } catch (e) { console.warn('[SYNC] could not open tab', tabData.url, e); }
+          }
+          if (tabIds.length > 0) {
+            try {
+              await chrome.tabs.group({ tabIds, groupId: existing.id });
+              added = true;
+              console.log('[SYNC] tabs added to group:', groupName);
+            } catch (e) { console.warn('[SYNC] could not add tabs to group', groupName, e); }
+          }
         }
       }
     }
-    console.log('[SYNC] _applyIncrementalGroupSync done — added:', added);
+
+    // Case 3: ungrouped tabs — add any that aren't already open anywhere in the window
+    const newUngrouped = (updatedWorkspace.ungroupedTabs || []).filter(t =>
+      _isSyncableUrl(t.url) && !allOpenUrls.has(_normalizeUrl(t.url))
+    );
+    console.log('[SYNC] new ungrouped tabs to add:', newUngrouped.length);
+    for (const tabData of newUngrouped) {
+      try {
+        await chrome.tabs.create({ url: tabData.url, windowId: sidebarWindowId, active: false });
+        added = true;
+      } catch (e) { console.warn('[SYNC] could not open ungrouped tab', tabData.url, e); }
+    }
+
+    console.log('[SYNC] _applyIncrementalGroupSync done — added anything:', added);
     return added;
   } catch (e) {
     console.error('_applyIncrementalGroupSync failed:', e);
