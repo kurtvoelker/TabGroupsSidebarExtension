@@ -160,18 +160,8 @@ async function saveWorkspace(id, workspaceData) {
     throw e;
   }
 
-  // Mirror to Supabase for Pro users. Fire-and-forget — local save already succeeded.
-  // Strip unnamed groups before pushing: a group with no title is still being created
-  // (the user hasn't typed a name yet). We don't want the mid-creation snapshot to
-  // land on other devices as "(untitled)". The next auto-save after naming will push it.
-  if (typeof pushWorkspace === 'function' && canUseFeature(FEATURES.CLOUD_SYNC)) {
-    const namedGroupsOnly = (updated.groups || []).filter(g => g.name && g.name.trim());
-    const dataToSync = namedGroupsOnly.length === updated.groups?.length
-      ? updated
-      : { ...updated, groups: namedGroupsOnly };
-    pushWorkspace(id, dataToSync).catch(e => console.warn('supabase: push after save failed', e));
-  }
 }
+
 
 // Pro-gated by the caller via canUseFeature(FEATURES.MULTIPLE_WORKSPACES).
 async function createWorkspace(name) {

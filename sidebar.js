@@ -10,6 +10,8 @@ const SVG_FOLDER_OPEN = `<svg viewBox="0 0 24 24" fill="none" stroke="currentCol
 
 const SVG_REFRESH = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>`;
 
+const SVG_CLOUD_SYNC = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z"/><polyline points="9 14 12 17 15 14"/><polyline points="15 10 12 7 9 10"/></svg>`;
+
 const chromeColorMap = {
   grey:   '#7A7D81',
   blue:   '#3B82F6',
@@ -1509,6 +1511,9 @@ function wireUI() {
     const refreshBtn = $('refreshBtn');
     if (refreshBtn) refreshBtn.innerHTML = SVG_REFRESH;
 
+    const cloudSyncBtn = $('cloudSyncBtn');
+    if (cloudSyncBtn) cloudSyncBtn.innerHTML = SVG_CLOUD_SYNC;
+
     // Sort button opens dropdown
     sortBtn?.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -1542,8 +1547,13 @@ function wireUI() {
       await refreshWorkspacesCache();
       renderWorkspaceSwitcher();
       await loadAndRender();
+    });
+
+    $('cloudSyncBtn')?.addEventListener('click', async () => {
       if (canUseFeature(FEATURES.CLOUD_SYNC)) {
         await doCloudSync();
+      } else {
+        showStatus('Cloud sync is a Pro feature — activate a license to enable it.');
       }
     });
     $('search')?.addEventListener('input', applySearchFilter);
