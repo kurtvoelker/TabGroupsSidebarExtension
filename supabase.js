@@ -127,7 +127,7 @@ async function pushWorkspace(workspaceKey, data) { // eslint-disable-line no-unu
   if (!session) return;
 
   try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/workspaces`, {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/workspaces?on_conflict=user_id,workspace_key`, {
       method:  'POST',
       headers: { ..._restHeaders(session), 'Prefer': 'resolution=merge-duplicates' },
       body: JSON.stringify({
