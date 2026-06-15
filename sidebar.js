@@ -1247,13 +1247,17 @@ async function _applyIncrementalGroupSync(updatedWorkspace) {
       existingChromeGroups.map(g => (g.title || '').toLowerCase()).filter(n => n !== '')
     );
 
+    console.log('[SYNC] _applyIncrementalGroupSync — existing Chrome groups:', [...existingNames]);
+    console.log('[SYNC] _applyIncrementalGroupSync — groups in synced workspace:', (updatedWorkspace.groups || []).map(g => g.name || '(unnamed)'));
+
     let added = false;
     for (const group of (updatedWorkspace.groups || [])) {
       const groupName = (group.name || '').trim();
-      if (!groupName) continue; // skip unnamed groups — can't reliably identify them
-      if (existingNames.has(groupName.toLowerCase())) continue;
-      if (!Array.isArray(group.tabs) || group.tabs.length === 0) continue;
+      if (!groupName) { console.log('[SYNC] skipping unnamed group'); continue; }
+      if (existingNames.has(groupName.toLowerCase())) { console.log('[SYNC] skipping already-open group:', groupName); continue; }
+      if (!Array.isArray(group.tabs) || group.tabs.length === 0) { console.log('[SYNC] skipping empty group:', groupName); continue; }
 
+      console.log('[SYNC] adding group to Chrome:', groupName, '—', group.tabs.length, 'tab(s)');
       const tabIds = [];
       for (const tabData of group.tabs) {
         try {
@@ -1274,11 +1278,13 @@ async function _applyIncrementalGroupSync(updatedWorkspace) {
           });
           existingNames.add(groupName.toLowerCase());
           added = true;
+          console.log('[SYNC] group added successfully:', groupName);
         } catch (e) {
           console.warn('_applyIncrementalGroupSync: could not create group', groupName, e);
         }
       }
     }
+    console.log('[SYNC] _applyIncrementalGroupSync done — added:', added);
     return added;
   } catch (e) {
     console.error('_applyIncrementalGroupSync failed:', e);
@@ -1290,29 +1296,30 @@ async function _applyIncrementalGroupSync(updatedWorkspace) {
 // and shows user-facing feedback. Called by the refresh button and on startup.
 async function doCloudSync() {
   try {
-    // Force-save and push current workspace state BEFORE pulling.
-    // This covers the race where the 500ms auto-save debounce hasn't fired yet
-    // when the user clicks sync — without this, recent changes would not be in
-    // Supabase before we pull, so the push and pull would both see stale data.
+    console.log('[SYNC] doCloudSync started — activeWorkspaceIdCache:', activeWorkspaceIdCache);
+
     if (activeWorkspaceIdCache) {
       await saveWorkspaceNow(expandedGroupIds, allOpenState, sidebarWindowId);
+      const savedWs = await getWorkspace(activeWorkspaceIdCache);
+      console.log('[SYNC] saved workspace before push — updatedAt:', savedWs?.updatedAt, 'groups:', (savedWs?.groups || []).map(g => g.name || '(unnamed)'));
       await pushWorkspaceNow(activeWorkspaceIdCache);
+      console.log('[SYNC] push complete');
     }
 
-    // Snapshot the current workspace's updatedAt before pulling so we can
-    // detect whether the pull brought in newer data for the active workspace.
     const currentWsId = activeWorkspaceIdCache;
     const prePullTs   = currentWsId ? (workspacesCache[currentWsId]?.updatedAt || 0) : 0;
+    console.log('[SYNC] pre-pull updatedAt for active workspace:', prePullTs);
 
     await pullAndMergeFromCloud();
+    console.log('[SYNC] pull complete');
+
     _lastSyncedAt = Date.now();
     await chrome.storage.local.set({ _lastSyncedAt });
     await refreshWorkspacesCache();
 
-    // If the pull updated the currently active workspace, push the new groups
-    // into the live Chrome window so the change is immediately visible.
     if (currentWsId) {
       const postPullTs = workspacesCache[currentWsId]?.updatedAt || 0;
+      console.log('[SYNC] post-pull updatedAt for active workspace:', postPullTs, '— changed:', postPullTs > prePullTs);
       if (postPullTs > prePullTs) {
         const applied = await _applyIncrementalGroupSync(workspacesCache[currentWsId]);
         if (applied) await loadAndRender();

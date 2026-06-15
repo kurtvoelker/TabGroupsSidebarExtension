@@ -124,20 +124,25 @@ function _restHeaders(session) {
 // Upsert one workspace row. Safe to fire-and-forget.
 async function pushWorkspace(workspaceKey, data) { // eslint-disable-line no-unused-vars
   const session = await _getValidSession();
-  if (!session) return;
+  if (!session) { console.warn('[SYNC] pushWorkspace: no valid session'); return; }
+
+  const body = {
+    user_id:       session.user_id,
+    workspace_key: workspaceKey,
+    data,
+    updated_at:    new Date(data.updatedAt || Date.now()).toISOString()
+  };
+  console.log('[SYNC] pushWorkspace — key:', workspaceKey, 'user_id:', session.user_id, 'updatedAt:', body.updated_at, 'groups:', (data.groups || []).map(g => g.name));
 
   try {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/workspaces?on_conflict=user_id,workspace_key`, {
       method:  'POST',
       headers: { ..._restHeaders(session), 'Prefer': 'resolution=merge-duplicates' },
-      body: JSON.stringify({
-        user_id:       session.user_id,
-        workspace_key: workspaceKey,
-        data,
-        updated_at:    new Date(data.updatedAt || Date.now()).toISOString()
-      })
+      body:    JSON.stringify(body)
     });
-    if (!res.ok) console.warn('supabase: pushWorkspace failed', res.status, await res.text());
+    const text = await res.text();
+    console.log('[SYNC] pushWorkspace response — status:', res.status, 'body:', text || '(empty)');
+    if (!res.ok) console.warn('supabase: pushWorkspace failed', res.status, text);
   } catch (e) {
     console.warn('supabase: pushWorkspace network error', e);
   }
@@ -147,15 +152,22 @@ async function pushWorkspace(workspaceKey, data) { // eslint-disable-line no-unu
 // Returns [{ workspace_key, data, updated_at }] or null on failure.
 async function pullAllWorkspaces() { // eslint-disable-line no-unused-vars
   const session = await _getValidSession();
-  if (!session) return null;
+  if (!session) { console.warn('[SYNC] pullAllWorkspaces: no valid session'); return null; }
 
+  console.log('[SYNC] pullAllWorkspaces — user_id:', session.user_id);
   try {
     const res = await fetch(
       `${SUPABASE_URL}/rest/v1/workspaces?select=workspace_key,data,updated_at`,
       { headers: _restHeaders(session) }
     );
-    if (!res.ok) { console.warn('supabase: pullAllWorkspaces failed', res.status); return null; }
-    return await res.json();
+    if (!res.ok) {
+      const text = await res.text();
+      console.warn('[SYNC] pullAllWorkspaces failed — status:', res.status, text);
+      return null;
+    }
+    const rows = await res.json();
+    console.log('[SYNC] pullAllWorkspaces — received', rows.length, 'row(s):', rows.map(r => `${r.workspace_key} (updatedAt: ${r.data?.updatedAt})`));
+    return rows;
   } catch (e) {
     console.warn('supabase: pullAllWorkspaces network error', e);
     return null;

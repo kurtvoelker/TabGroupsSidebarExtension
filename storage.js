@@ -218,32 +218,37 @@ async function renameWorkspace(id, name) {
 // Awaitable — callers can use this to guarantee the push completes before continuing.
 // Applies the same named-groups filter as the auto-save push in saveWorkspace().
 async function pushWorkspaceNow(id) { // eslint-disable-line no-unused-vars
-  if (typeof pushWorkspace !== 'function') return;
-  if (!canUseFeature(FEATURES.CLOUD_SYNC)) return;
+  if (typeof pushWorkspace !== 'function') { console.warn('[SYNC] pushWorkspaceNow: pushWorkspace not available'); return; }
+  if (!canUseFeature(FEATURES.CLOUD_SYNC)) { console.warn('[SYNC] pushWorkspaceNow: CLOUD_SYNC feature not enabled'); return; }
   const ws = await getWorkspace(id);
-  if (!ws) return;
+  if (!ws) { console.warn('[SYNC] pushWorkspaceNow: workspace not found', id); return; }
   const namedOnly = (ws.groups || []).filter(g => g.name && g.name.trim());
   const payload = namedOnly.length === (ws.groups?.length || 0) ? ws : { ...ws, groups: namedOnly };
+  console.log('[SYNC] pushWorkspaceNow — id:', id, 'updatedAt:', payload.updatedAt, 'groups:', payload.groups.map(g => g.name));
   await pushWorkspace(id, payload);
 }
 
 // Pulls all workspaces from Supabase and writes any that are newer than the
 // local copy. Does not delete local workspaces missing from the cloud.
 async function pullAndMergeFromCloud() { // eslint-disable-line no-unused-vars
-  if (typeof pullAllWorkspaces !== 'function') return;
-  if (!canUseFeature(FEATURES.CLOUD_SYNC)) return;
+  if (typeof pullAllWorkspaces !== 'function') { console.warn('[SYNC] pullAndMergeFromCloud: pullAllWorkspaces not available'); return; }
+  if (!canUseFeature(FEATURES.CLOUD_SYNC)) { console.warn('[SYNC] pullAndMergeFromCloud: CLOUD_SYNC feature not enabled'); return; }
 
   const rows = await pullAllWorkspaces();
+  console.log('[SYNC] pullAndMergeFromCloud — rows received:', rows ? rows.length : 'null');
   if (!rows || rows.length === 0) return;
 
   for (const row of rows) {
     const { workspace_key: key, data } = row;
-    if (!key || !data) continue;
+    if (!key || !data) { console.warn('[SYNC] skipping invalid row', row); continue; }
 
     const localResult = await storageGet([key]);
     const local = localResult[key];
     const remoteTs = data.updatedAt || 0;
     const localTs  = local?.updatedAt || 0;
+
+    console.log(`[SYNC] workspace ${key} — remote updatedAt: ${remoteTs}, local updatedAt: ${localTs}, will update: ${remoteTs > localTs}`);
+    console.log(`[SYNC] remote groups:`, (data.groups || []).map(g => g.name || '(unnamed)'));
 
     if (remoteTs > localTs) {
       const indexResult = await storageGet([WS_INDEX_KEY]);
@@ -252,6 +257,7 @@ async function pullAndMergeFromCloud() { // eslint-disable-line no-unused-vars
       if (!ids.includes(key)) writes[WS_INDEX_KEY] = [...ids, key];
       try {
         await storageSet(writes);
+        console.log('[SYNC] wrote updated workspace to local storage:', key);
       } catch (e) {
         console.warn('pullAndMergeFromCloud: failed to write', key, e);
       }
